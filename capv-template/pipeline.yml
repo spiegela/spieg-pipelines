@@ -7,34 +7,49 @@ resource_types:
       tag: latest
 
 resources:
+  - name: pipelines
+    type: git
+    source:
+      uri: git@github.com:spiegela/spieg-pipelines.git
+      branch: master
+      private_key: ((git_private_key))
+
   - name: terraform
     type: terraform
     source:
+      env_name: spieg
       backend_type: s3
       backend_config:
-        endpoint: object.ecstestdrive.com
-        access_key: {{s3_access_key}}
-        secret_key: {{s3_secret_key}}
+        endpoint: ((s3.endpoint))
+        region: us-east-1
+        skip_credentials_validation: "true"
+        access_key: ((s3.access_key))
+        secret_key: ((s3.secret_key))
         bucket: terraform
-        key: spieg/terraform.tfstate
+        key: terraform.tfstate
       vars:
-        vsphere_server: {{vsphere.server}}
-        vsphere_user: {{vsphere.user}}
-        vsphere_password: {{vsphere.password}}
+        vsphere_server: ((vsphere.server))
+        vsphere_user: ((vsphere.user))
+        vsphere_password: ((vsphere.password))
 
 jobs:
   - name: create-ubuntu-template
     plan:
-      - get: spieg-terraform
+      - get: pipelines
       - put: terraform
         params:
-          terraform_source: spieg-pipelines/terraform/capv-template/capv-template.tf
+          terraform_source: pipelines/terraform/capv-template
           vars:
             capv_template_name: ubuntu-1804-kube-v1.18.2
             capv_image: http://storage.googleapis.com/capv-images/release/v1.18.2/ubuntu-1804-kube-v1.18.2.ova
       - task: show-outputs
         config:
           platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: busybox
+              tag: latest
           inputs:
             - name: terraform
           run:
@@ -45,9 +60,17 @@ jobs:
                 echo "name: $(cat terraform/name)"
                 echo "metadata: $(cat terraform/metadata)"
       - task: convert-to-template
-        file: pipelines-repo/tasks/govc-cmd/task.yml
+        file: pipelines/tasks/govc-cmd/task.yml
         input_mapping:
           config: config
         params:
-          debug: ((debug))
-          args: vm.markastemplate ubuntu-1804-kube-v1.18.2
+          GOVC_INSECURE: "true"
+          GOVC_URL: https://((vsphere.server))/sdk
+          GOVC_USERNAME: ((vsphere.user))
+          GOVC_PASSWORD: ((vsphere.password))
+          GOVC_DATACENTER: "Datacenter"
+          GOVC_DATASTORE: "Datastore 1"
+          GOVC_NETWORK: "VM Network"
+          GOVC_RESOURCE_POOL: ""
+          DEBUG: "true"
+          ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2

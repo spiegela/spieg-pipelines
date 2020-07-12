@@ -10,12 +10,19 @@ image_resource:
 params:
   DEBUG:
   ARGS:
+  GOVC_INSECURE:
+  GOVC_URL:
+  GOVC_USERNAME:
+  GOVC_PASSWORD:
+  GOVC_DATACENTER:
+  GOVC_DATASTORE:
+  GOVC_NETWORK:
+  GOVC_RESOURCE_POOL:
   IGNORE_ERROR:
 
 inputs:
-  - name: config
-  - name: env
   - name: files
+    optional: true
 
 run:
   path: /bin/bash
@@ -24,12 +31,8 @@ run:
     - |
       if [[ $DEBUG == true ]]; then
         set -x
-        ls -lr env
-        ls -lr config
         ls -lr files
       fi
-
-      . env/govc.env
 
       if [[ $IGNORE_ERROR == true ]]; then
         set +e

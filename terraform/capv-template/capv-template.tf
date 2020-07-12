@@ -20,8 +20,8 @@ variable "capv_image" {
 
 provider "vsphere" {
   vsphere_server = var.vsphere_server
-  user           = var.vsphere_user
-  password       = var.vsphere_password
+  user = var.vsphere_user
+  password = var.vsphere_password
 
   # If you have a self-signed cert
   allow_unverified_ssl = true
@@ -32,27 +32,44 @@ data "vsphere_datacenter" "dc" {
 }
 
 data "vsphere_datastore" "datastore_1" {
-  name          = "Datastore 1"
+  name = "Datastore 1"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_datastore" "datastore" {
-  name          = "Datastore"
+  name = "Datastore"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_network" "vm_network" {
-  name          = "VM Network"
+  name = "VM Network"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_network" "storage_access_network" {
-  name          = "Storage Access"
+  name = "Storage Access"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
+data "vsphere_compute_cluster" "compute_cluster" {
+  name = "Cluster"
+  datacenter_id = data.vsphere_datacenter.dc.id
+}
+
+data "vsphere_host" "esx_03" {
+  name          = "esx-03.lan"
+  datacenter_id = data.vsphere_datacenter.dc.id
+}
+
+resource "vsphere_resource_pool" "resource_pool" {
+  name = "ClusterAPI"
+  parent_resource_pool_id = data.vsphere_compute_cluster.compute_cluster.resource_pool_id
+}
+
 resource "vsphere_virtual_machine" "capv-ubuntu-1804" {
-  name = capv_template_name
+  name = var.capv_template_name
+  host_system_id = data.vsphere_host.esx_03.id
+  resource_pool_id = vsphere_resource_pool.resource_pool.id
   datastore_id = data.vsphere_datastore.datastore_1.id
   datacenter_id = data.vsphere_datacenter.dc.id
   num_cpus = 8
@@ -62,13 +79,12 @@ resource "vsphere_virtual_machine" "capv-ubuntu-1804" {
   wait_for_guest_ip_timeout = 0
 
   ovf_deploy {
-    remote_ovf_url = capv_image
+    remote_ovf_url = var.capv_image
     disk_provisioning = "thin"
     ovf_network_map = {
       "nic0" = data.vsphere_network.vm_network.id
     }
   }
-  resource_pool_id = ""
   network_interface {
     network_id = data.vsphere_network.storage_access_network.id
   }
