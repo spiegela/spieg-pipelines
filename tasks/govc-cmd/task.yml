@@ -1,0 +1,44 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: pivotalgreenhouse/govc
+    tag: latest
+
+params:
+  DEBUG:
+  ARGS:
+  IGNORE_ERROR:
+
+inputs:
+  - name: config
+  - name: env
+  - name: files
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      if [[ $DEBUG == true ]]; then
+        set -x
+        ls -lr env
+        ls -lr config
+        ls -lr files
+      fi
+
+      . env/govc.env
+
+      if [[ $IGNORE_ERROR == true ]]; then
+        set +e
+      else
+        set -e
+      fi
+
+      read -r -a ARGS <<< "$ARGS"
+
+      govc "${ARGS[@]}"
+
+      exit 0

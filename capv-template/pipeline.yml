@@ -1,0 +1,53 @@
+---
+resource_types:
+  - name: terraform
+    type: docker-image
+    source:
+      repository: ljfranklin/terraform-resource
+      tag: latest
+
+resources:
+  - name: terraform
+    type: terraform
+    source:
+      backend_type: s3
+      backend_config:
+        endpoint: object.ecstestdrive.com
+        access_key: {{s3_access_key}}
+        secret_key: {{s3_secret_key}}
+        bucket: terraform
+        key: spieg/terraform.tfstate
+      vars:
+        vsphere_server: {{vsphere.server}}
+        vsphere_user: {{vsphere.user}}
+        vsphere_password: {{vsphere.password}}
+
+jobs:
+  - name: create-ubuntu-template
+    plan:
+      - get: spieg-terraform
+      - put: terraform
+        params:
+          terraform_source: spieg-pipelines/terraform/capv-template/capv-template.tf
+          vars:
+            capv_template_name: ubuntu-1804-kube-v1.18.2
+            capv_image: http://storage.googleapis.com/capv-images/release/v1.18.2/ubuntu-1804-kube-v1.18.2.ova
+      - task: show-outputs
+        config:
+          platform: linux
+          inputs:
+            - name: terraform
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                echo "name: $(cat terraform/name)"
+                echo "metadata: $(cat terraform/metadata)"
+      - task: convert-to-template
+        file: pipelines-repo/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          debug: ((debug))
+          args: vm.markastemplate ubuntu-1804-kube-v1.18.2
