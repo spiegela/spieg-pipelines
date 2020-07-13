@@ -1,4 +1,33 @@
 ---
+govc_env: &govc_env
+  GOVC_INSECURE: "true"
+  GOVC_URL: https://((vsphere.server))/sdk
+  GOVC_USERNAME: ((vsphere.user))
+  GOVC_PASSWORD: ((vsphere.password))
+  GOVC_DATACENTER: "Datacenter"
+  GOVC_DATASTORE: "Datastore 1"
+  GOVC_NETWORK: "VM Network"
+  GOVC_RESOURCE_POOL: "ClusterAPI"
+  DEBUG: "true"
+
+show_terraform_output: &show_terraform_output
+  config:
+    platform: linux
+    image_resource:
+      type: docker-image
+      source:
+        repository: busybox
+        tag: latest
+    inputs:
+      - name: terraform
+    run:
+      path: /bin/sh
+      args:
+        - -c
+        - |
+          echo "name: $(cat terraform/name)"
+          echo "metadata: $(cat terraform/metadata)"
+
 resource_types:
   - name: terraform
     type: docker-image
@@ -31,9 +60,11 @@ resources:
         vsphere_server: ((vsphere.server))
         vsphere_user: ((vsphere.user))
         vsphere_password: ((vsphere.password))
+        template_host: ((vsphere.template_host))
 
 jobs:
-  - name: create-ubuntu-template
+
+  - name: create-template-vms
     plan:
       - get: pipelines
       - put: terraform
@@ -42,35 +73,63 @@ jobs:
           vars:
             capv_template_name: ubuntu-1804-kube-v1.18.2
             capv_image: http://storage.googleapis.com/capv-images/release/v1.18.2/ubuntu-1804-kube-v1.18.2.ova
+            haproxy_template_name: capv-haproxy-1.2.4
+            haproxy_image: http://storage.googleapis.com/capv-images/extra/haproxy/release/v1.2.4/photon-3-haproxy-v1.2.4.ova
       - task: show-outputs
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: busybox
-              tag: latest
-          inputs:
-            - name: terraform
-          run:
-            path: /bin/sh
-            args:
-              - -c
-              - |
-                echo "name: $(cat terraform/name)"
-                echo "metadata: $(cat terraform/metadata)"
+        <<: *show_terraform_output
+      - task: power-off-vm
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          ARGS: vm.power -off ubuntu-1804-kube-v1.18.2
       - task: convert-to-template
         file: pipelines/tasks/govc-cmd/task.yml
         input_mapping:
           config: config
         params:
-          GOVC_INSECURE: "true"
-          GOVC_URL: https://((vsphere.server))/sdk
-          GOVC_USERNAME: ((vsphere.user))
-          GOVC_PASSWORD: ((vsphere.password))
-          GOVC_DATACENTER: "Datacenter"
-          GOVC_DATASTORE: "Datastore 1"
-          GOVC_NETWORK: "VM Network"
-          GOVC_RESOURCE_POOL: ""
-          DEBUG: "true"
+          <<: *govc_env
           ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2
+
+  - name: make-capv-template
+    plan:
+      - get: pipelines
+      - get: terraform
+        passed:
+          - create-template-vms
+      - task: power-off-vm
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          ARGS: vm.power -off ubuntu-1804-kube-v1.18.2
+      - task: convert-to-template
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2
+
+  - name: make-haproxy-template
+    plan:
+      - get: pipelines
+      - get: terraform
+        passed:
+          - create-template-vms
+      - task: power-off-vm
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          ARGS: vm.power -off capv-haproxy-1.2.4
+      - task: convert-to-template
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          ARGS: vm.markastemplate capv-haproxy-1.2.4
