@@ -101,6 +101,24 @@ resources:
       access_key_id: ((s3.access_key))
       secret_access_key: ((s3.secret_key))
 
+  - name: jonquil-cluster
+    type: s3
+    source:
+      bucket: concourse
+      versioned_file: ClusterAPI/jonquil/cluster.yaml
+      endpoint: ((s3.endpoint))
+      access_key_id: ((s3.access_key))
+      secret_access_key: ((s3.secret_key))
+
+  - name: mikado-cluster
+    type: s3
+    source:
+      bucket: concourse
+      versioned_file: ClusterAPI/mikado/cluster.yaml
+      endpoint: ((s3.endpoint))
+      access_key_id: ((s3.access_key))
+      secret_access_key: ((s3.secret_key))
+
 jobs:
 
   - name: create-template-vms
@@ -199,6 +217,7 @@ jobs:
           config: microk8s-config
         params:
           <<: *vsphere_env
+          GITHUB_TOKEN: ((git_token))
           CLUSTER_NAME: gamboge
           CONTROL_PLANE_MACHINE_COUNT: 3
           WOKER_MACHINE_COUNT: 1
@@ -206,5 +225,63 @@ jobs:
           NAMESPACE: default
 
       - put: gamboge-cluster
+        params:
+          file: cluster/cluster.yaml
+
+  - name: jonquil-config
+    plan:
+      - in_parallel:
+          - get: pipelines
+            trigger: true
+          - get: microk8s-config
+          - get: clusterctl-release
+            trigger: true
+            params:
+              glob: clusterctl-linux-amd64
+
+      - task: generate-config
+        file: pipelines/tasks/vsphere-cluster-config/task.yml
+        input_mapping:
+          clusterctl: clusterctl-release
+          config: microk8s-config
+        params:
+          <<: *vsphere_env
+          GITHUB_TOKEN: ((git_token))
+          CLUSTER_NAME: jonquil
+          CONTROL_PLANE_MACHINE_COUNT: 3
+          WOKER_MACHINE_COUNT: 1
+          KUBERNETES_VERSION: 1.18.2
+          NAMESPACE: default
+
+      - put: jonquil-cluster
+        params:
+          file: cluster/cluster.yaml
+
+  - name: mikado-config
+    plan:
+      - in_parallel:
+          - get: pipelines
+            trigger: true
+          - get: microk8s-config
+          - get: clusterctl-release
+            trigger: true
+            params:
+              glob: clusterctl-linux-amd64
+
+      - task: generate-config
+        file: pipelines/tasks/vsphere-cluster-config/task.yml
+        input_mapping:
+          clusterctl: clusterctl-release
+          config: microk8s-config
+        params:
+          <<: *vsphere_env
+          GITHUB_TOKEN: ((git_token))
+          CLUSTER_NAME: mikado
+          CONTROL_PLANE_MACHINE_COUNT: 3
+          WOKER_MACHINE_COUNT: 1
+          KUBERNETES_VERSION: 1.18.2
+          NAMESPACE: default
+
+      - put: mikado-cluster
         params:
           file: cluster/cluster.yaml
