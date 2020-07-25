@@ -10,6 +10,19 @@ govc_env: &govc_env
   GOVC_RESOURCE_POOL: "ClusterAPI"
   DEBUG: "true"
 
+vsphere_env: &vsphere_env
+  VSPHERE_USERNAME: ((vsphere.user))
+  VSPHERE_PASSWORD: ((vsphere.password))
+  VSPHERE_DATACENTER: Datacenter
+  VSPHERE_DATASTORE: Datastore 1
+  VSPHERE_FOLDER: ClusterAPI
+  VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-1.2.4
+  VSPHERE_NETWORK: VM Network
+  VSPHERE_RESOURCE_POOL: ClusterAPI
+  VSPHERE_SERVER: ((vsphere.server))
+  VSPHERE_SSH_AUTHORIZED_KEY: ((ssh_authorized_key))
+  VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
+
 show_terraform_output: &show_terraform_output
   config:
     platform: linux
@@ -62,11 +75,38 @@ resources:
         vsphere_password: ((vsphere.password))
         template_host: ((vsphere.template_host))
 
+  - name: microk8s-config
+    type: s3
+    source:
+      bucket: concourse
+      versioned_file: ClusterAPI/microk8s/config
+      endpoint: ((s3.endpoint))
+      access_key_id: ((s3.access_key))
+      secret_access_key: ((s3.secret_key))
+
+  - name: clusterctl-release
+    type: github-release
+    source:
+      owner: kubernetes-sigs
+      repository: cluster-api
+      private_key: ((git_private_key))
+      pre_release: true
+
+  - name: gamboge-cluster
+    type: s3
+    source:
+      bucket: concourse
+      versioned_file: ClusterAPI/gamboge/cluster.yaml
+      endpoint: ((s3.endpoint))
+      access_key_id: ((s3.access_key))
+      secret_access_key: ((s3.secret_key))
+
 jobs:
 
   - name: create-template-vms
     plan:
       - get: pipelines
+        trigger: true
       - put: terraform
         params:
           terraform_source: pipelines/terraform/capv-template
@@ -95,7 +135,9 @@ jobs:
   - name: make-capv-template
     plan:
       - get: pipelines
+        trigger: true
       - get: terraform
+        trigger: true
         passed:
           - create-template-vms
       - task: power-off-vm
@@ -104,6 +146,7 @@ jobs:
           config: config
         params:
           <<: *govc_env
+          IGNORE_ERROR: true
           ARGS: vm.power -off ubuntu-1804-kube-v1.18.2
       - task: convert-to-template
         file: pipelines/tasks/govc-cmd/task.yml
@@ -111,12 +154,14 @@ jobs:
           config: config
         params:
           <<: *govc_env
+          IGNORE_ERROR: true
           ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2
 
   - name: make-haproxy-template
     plan:
       - get: pipelines
       - get: terraform
+        trigger: true
         passed:
           - create-template-vms
       - task: power-off-vm
@@ -125,6 +170,7 @@ jobs:
           config: config
         params:
           <<: *govc_env
+          IGNORE_ERROR: true
           ARGS: vm.power -off capv-haproxy-1.2.4
       - task: convert-to-template
         file: pipelines/tasks/govc-cmd/task.yml
@@ -132,4 +178,33 @@ jobs:
           config: config
         params:
           <<: *govc_env
+          IGNORE_ERROR: true
           ARGS: vm.markastemplate capv-haproxy-1.2.4
+
+  - name: gamboge-config
+    plan:
+      - in_parallel:
+        - get: pipelines
+          trigger: true
+        - get: microk8s-config
+        - get: clusterctl-release
+          trigger: true
+          params:
+            glob: clusterctl-linux-amd64
+
+      - task: generate-config
+        file: pipelines/tasks/vsphere-cluster-config/task.yml
+        input_mapping:
+          clusterctl: clusterctl-release
+          config: microk8s-config
+        params:
+          <<: *vsphere_env
+          CLUSTER_NAME: gamboge
+          CONTROL_PLANE_MACHINE_COUNT: 3
+          WOKER_MACHINE_COUNT: 1
+          KUBERNETES_VERSION: 1.18.2
+          NAMESPACE: default
+
+      - put: gamboge-cluster
+        params:
+          file: cluster/cluster.yaml
