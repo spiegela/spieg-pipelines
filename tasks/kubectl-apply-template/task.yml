@@ -1,0 +1,45 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: bitnami/kubectl
+    tag: 1.18.0
+
+params:
+  DEBUG:
+  KUBECONFIG: config/config
+  IGNORE_ERROR:
+  TEMPLATE:
+  TIMEOUT: 300
+  NAMESPACE:
+
+inputs:
+  - name: config
+  - name: templates
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      if [[ $DEBUG == true ]]; then
+        set -ex
+      else
+        set -e
+      fi
+
+      if [[ $IGNORE_ERROR == true ]]; then
+        set +e
+      else
+        set -e
+      fi
+
+      FLAGS=()
+
+      if [[ "${NAMESPACE}" != "" ]]; then
+        FLAGS=("-n" "$NAMESPACE")
+      fi
+
+      kubectl apply "${FLAGS[@]}" -f templates/${TEMPLATE}

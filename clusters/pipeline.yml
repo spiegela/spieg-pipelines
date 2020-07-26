@@ -23,6 +23,12 @@ vsphere_env: &vsphere_env
   VSPHERE_SSH_AUTHORIZED_KEY: ((ssh_authorized_key))
   VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
 
+s3_env: &s3_env
+  bucket: concourse
+  endpoint: ((s3.endpoint))
+  access_key_id: ((s3.access_key))
+  secret_access_key: ((s3.secret_key))
+
 show_terraform_output: &show_terraform_output
   config:
     platform: linux
@@ -78,11 +84,20 @@ resources:
   - name: microk8s-config
     type: s3
     source:
-      bucket: concourse
       versioned_file: ClusterAPI/microk8s/config
-      endpoint: ((s3.endpoint))
-      access_key_id: ((s3.access_key))
-      secret_access_key: ((s3.secret_key))
+      <<: *s3_env
+
+  - name: gamboge-config
+    type: s3
+    source:
+      versioned_file: ClusterAPI/gamboge/config
+      <<: *s3_env
+
+  - name: gamboge-cluster
+    type: s3
+    source:
+      versioned_file: ClusterAPI/gamboge/cluster.yaml
+      <<: *s3_env
 
   - name: clusterctl-release
     type: github-release
@@ -91,15 +106,6 @@ resources:
       repository: cluster-api
       private_key: ((git_private_key))
       pre_release: true
-
-  - name: gamboge-cluster
-    type: s3
-    source:
-      bucket: concourse
-      versioned_file: ClusterAPI/gamboge/cluster.yaml
-      endpoint: ((s3.endpoint))
-      access_key_id: ((s3.access_key))
-      secret_access_key: ((s3.secret_key))
 
   - name: jonquil-cluster
     type: s3
@@ -199,7 +205,7 @@ jobs:
           IGNORE_ERROR: true
           ARGS: vm.markastemplate capv-haproxy-1.2.4
 
-  - name: gamboge-config
+  - name: gamboge-cluster-yaml
     plan:
       - in_parallel:
         - get: pipelines
@@ -210,7 +216,7 @@ jobs:
           params:
             glob: clusterctl-linux-amd64
 
-      - task: generate-config
+      - task: generate-cluster-yaml
         file: pipelines/tasks/vsphere-cluster-config/task.yml
         input_mapping:
           clusterctl: clusterctl-release
@@ -228,7 +234,7 @@ jobs:
         params:
           file: cluster/cluster.yaml
 
-  - name: jonquil-config
+  - name: jonquil-cluster-yaml
     plan:
       - in_parallel:
           - get: pipelines
@@ -239,7 +245,7 @@ jobs:
             params:
               glob: clusterctl-linux-amd64
 
-      - task: generate-config
+      - task: generate-cluster-yaml
         file: pipelines/tasks/vsphere-cluster-config/task.yml
         input_mapping:
           clusterctl: clusterctl-release
@@ -257,7 +263,7 @@ jobs:
         params:
           file: cluster/cluster.yaml
 
-  - name: mikado-config
+  - name: mikado-cluster-yaml
     plan:
       - in_parallel:
           - get: pipelines
@@ -268,7 +274,7 @@ jobs:
             params:
               glob: clusterctl-linux-amd64
 
-      - task: generate-config
+      - task: generate-cluster-yaml
         file: pipelines/tasks/vsphere-cluster-config/task.yml
         input_mapping:
           clusterctl: clusterctl-release
@@ -285,3 +291,54 @@ jobs:
       - put: mikado-cluster
         params:
           file: cluster/cluster.yaml
+
+  - name: gamboge-cluster
+    plan:
+      - in_parallel:
+        - get: pipelines
+        - get: microk8s-config
+        - get: gamboge-cluster
+          trigger: true
+          passed:
+            - gamboge-cluster-yaml
+
+      - task: create-cluster
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        input_mapping:
+          config: microk8s-config
+          templates: gamboge-cluster
+
+      - task: fetch-secret
+        file: pipelines/tasks/kubectl-cmd/task.yml
+        input_mapping:
+          config: microk8s-config
+          templates: gamboge-cluster
+        output_mapping:
+          output: encoded-secret
+        params:
+          COMMAND: get
+          ARGS: |
+            secret vsphere-quickstart-kubeconfig -o jsonpath='.data.value'
+
+      - task: decode-secret
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: terraform
+          outputs:
+            - name: kubeconfig
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
+
+      - put: gamboge-config
+        params:
+          file: kubeconfig/config
