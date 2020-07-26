@@ -1,0 +1,79 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: bitnami/kubectl
+    tag: 1.18.0
+
+params:
+  DEBUG:
+  TIMEOUT: 1800
+  KUBECONFIG: config/config
+  NAMESPACE:
+  NAME:
+
+inputs:
+  - name: config
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      if [[ $DEBUG == true ]]; then
+        set -ex
+      else
+        set -e
+      fi
+
+      if [[ "${NAMESPACE}" != "" ]]; then
+        FLAGS=("-n" "$NAMESPACE")
+      fi
+
+      # work around issue where getting a freshly installed CRD fails once on
+      # installation
+      set +e
+      kubectl "${FLAGS[@]}" get cluster
+      set -e
+
+      for i in $(seq 1 $TIMEOUT); do
+        if [[ $? -ne 0 ]]; then
+          REQEST_ERRORS=$[ $REQUEST_ERRORS + $i ]
+          continue
+        fi
+
+        echo -n .
+
+        # Handle transient API call errors
+        set +e
+
+        PHASE=$(kubectl  "${FLAGS[@]}" get cluster "${NAME}" -o jsonpath='{.status.phase}')
+        if [[ $? -ne 0 ]]; then
+          REQEST_ERRORS=$[ $REQUEST_ERRORS + $i ]
+          continue
+        fi
+
+        set -e
+
+        if [[ "${PHASE}" == "Provisioned" ]]; then
+          echo "Provisioned"
+          exit 0
+        fi
+
+        if [[ "${PHASE}" == "Failed" ]]; then
+          echo "Failed"
+          exit 2
+        fi
+
+        if [[ "${PHASE}" == "Deleting" ]]; then
+          echo "Deleting"
+          exit 1
+        fi
+
+        sleep 1
+      done
+
+      echo "Timed out waitng for cluster with name $NAME to become ready"
+      exit 1

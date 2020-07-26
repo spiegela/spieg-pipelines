@@ -308,6 +308,13 @@ jobs:
           config: microk8s-config
           templates: gamboge-cluster
 
+      - task: wait-until-provisioned
+        file: pipelines/tasks/wait-until-cluster-provisioned/task.yml
+        input_mapping:
+          config: microk8s-config
+        params:
+          NAME: gamboge
+
       - task: fetch-secret
         file: pipelines/tasks/kubectl-cmd/task.yml
         input_mapping:
