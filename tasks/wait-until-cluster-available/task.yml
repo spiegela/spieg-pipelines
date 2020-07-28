@@ -49,7 +49,7 @@ run:
         # Handle transient API call errors
         set +e
 
-        PHASE=$(kubectl  "${FLAGS[@]}" get cluster "${NAME}" -o jsonpath='{.status.phase}')
+        STATES=$(kubectl  "${FLAGS[@]}" get cluster "${NAME}" -o jsonpath='{.status.conditions[*].status}')
         if [[ $? -ne 0 ]]; then
           REQEST_ERRORS=$[ $REQUEST_ERRORS + $i ]
           continue
@@ -57,19 +57,9 @@ run:
 
         set -e
 
-        if [[ "${PHASE}" == "Provisioned" ]]; then
-          echo "Provisioned"
+        if [[ "${STATES}" == "TRUE TRUE TRUE" ]]; then
+          echo "Cluster Available"
           exit 0
-        fi
-
-        if [[ "${PHASE}" == "Failed" ]]; then
-          echo "Failed"
-          exit 2
-        fi
-
-        if [[ "${PHASE}" == "Deleting" ]]; then
-          echo "Deleting"
-          exit 1
         fi
 
         sleep 1

@@ -312,8 +312,8 @@ jobs:
           config: microk8s-config
           templates: gamboge-cluster
 
-      - task: wait-until-provisioned
-        file: pipelines/tasks/wait-until-cluster-provisioned/task.yml
+      - task: wait-until-available
+        file: pipelines/tasks/wait-until-cluster-available/task.yml
         input_mapping:
           config: microk8s-config
         params:
