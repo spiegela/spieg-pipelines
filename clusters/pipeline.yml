@@ -91,6 +91,12 @@ resources:
       versioned_file: ClusterAPI/gamboge/config
       <<: *s3_env
 
+  - name: jonquil-config
+    type: s3
+    source:
+      versioned_file: ClusterAPI/jonquil/config
+      <<: *s3_env
+
   - name: gamboge-cluster
     type: s3
     source:
@@ -125,7 +131,85 @@ resources:
 
 jobs:
 
-  - name: create-template-vms
+  - name: create-1.17-template-vms
+    plan:
+      - get: pipelines
+        trigger: true
+      - put: terraform
+        params:
+          terraform_source: pipelines/terraform/capv-template
+          vars:
+            capv_template_name: ubuntu-1804-kube-v1.17.5
+            capv_image: http://storage.googleapis.com/capv-images/release/v1.17.5/ubuntu-1804-kube-v1.17.5.ova
+            haproxy_template_name: capv-haproxy-v0.6.4
+            haproxy_image: http://storage.googleapis.com/capv-images/extra/haproxy/release/v0.6.4/capv-haproxy-v0.6.4.ova
+      - task: show-outputs
+        <<: *show_terraform_output
+      - task: power-off-vm
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          ARGS: vm.power -off ubuntu-1804-kube-v1.17.5
+      - task: convert-to-template
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          ARGS: vm.markastemplate ubuntu-1804-kube-v1.17.5
+
+  - name: make-1.17-capv-template
+    plan:
+      - get: pipelines
+        trigger: true
+      - get: terraform
+        trigger: true
+        passed:
+          - create-1.17-template-vms
+      - task: power-off-vm
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          IGNORE_ERROR: true
+          ARGS: vm.power -off ubuntu-1804-kube-v1.18.2
+      - task: convert-to-template
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          IGNORE_ERROR: true
+          ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2
+
+  - name: make-1.17-haproxy-template
+    plan:
+      - get: pipelines
+      - get: terraform
+        trigger: true
+        passed:
+          - create-1.17-template-vms
+      - task: power-off-vm
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          IGNORE_ERROR: true
+          ARGS: vm.power -off capv-haproxy-v1.2.4
+      - task: convert-to-template
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          config: config
+        params:
+          <<: *govc_env
+          IGNORE_ERROR: true
+          ARGS: vm.markastemplate capv-haproxy-v1.2.4
+
+  - name: create-1.18-template-vms
     plan:
       - get: pipelines
         trigger: true
@@ -154,14 +238,14 @@ jobs:
           <<: *govc_env
           ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2
 
-  - name: make-capv-template
+  - name: make-1.18-capv-template
     plan:
       - get: pipelines
         trigger: true
       - get: terraform
         trigger: true
         passed:
-          - create-template-vms
+          - create-1.18-template-vms
       - task: power-off-vm
         file: pipelines/tasks/govc-cmd/task.yml
         input_mapping:
@@ -179,13 +263,13 @@ jobs:
           IGNORE_ERROR: true
           ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2
 
-  - name: make-haproxy-template
+  - name: make-1.18-haproxy-template
     plan:
       - get: pipelines
       - get: terraform
         trigger: true
         passed:
-          - create-template-vms
+          - create-1.18-template-vms
       - task: power-off-vm
         file: pipelines/tasks/govc-cmd/task.yml
         input_mapping:
@@ -254,11 +338,11 @@ jobs:
           <<: *vsphere_env
           GITHUB_TOKEN: ((git_token))
           CLUSTER_NAME: jonquil
-          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-v1.2.4
-          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
+          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-v0.6.4
+          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.17.5
           CONTROL_PLANE_MACHINE_COUNT: 3
           WOKER_MACHINE_COUNT: 1
-          KUBERNETES_VERSION: 1.18.2
+          KUBERNETES_VERSION: 1.17.5
           NAMESPACE: default
 
       - put: jonquil-cluster
@@ -340,7 +424,7 @@ jobs:
               repository: alpine
               tag: latest
           inputs:
-            - name: terraform
+            - name: encoded-secret
           outputs:
             - name: kubeconfig
           run:
@@ -351,5 +435,63 @@ jobs:
                 base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
 
       - put: gamboge-config
+        params:
+          file: kubeconfig/config
+
+  - name: jonquil-cluster
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: microk8s-config
+          - get: jonquil-cluster
+            trigger: true
+            passed:
+              - jonquil-cluster-yaml
+
+      - task: create-cluster
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        input_mapping:
+          config: microk8s-config
+          templates: jonquil-cluster
+
+      - task: wait-until-available
+        file: pipelines/tasks/wait-until-cluster-available/task.yml
+        input_mapping:
+          config: microk8s-config
+        params:
+          NAME: jonquil
+
+      - task: fetch-secret
+        file: pipelines/tasks/kubectl-cmd/task.yml
+        input_mapping:
+          config: microk8s-config
+          templates: jonquil-cluster
+        output_mapping:
+          output: encoded-secret
+        params:
+          COMMAND: get
+          ARGS: |
+            secret jonquil-kubeconfig -o jsonpath='.data.value'
+
+      - task: decode-secret
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: encoded-secret
+          outputs:
+            - name: kubeconfig
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
+
+      - put: jonquil-config
         params:
           file: kubeconfig/config
