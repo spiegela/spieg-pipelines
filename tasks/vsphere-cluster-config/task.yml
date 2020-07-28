@@ -49,7 +49,19 @@ run:
 
       clusterctl/clusterctl-linux-amd64 config cluster gamboge > cluster/cluster.yaml
 
-      echo '{"spec": {"template": {"spec": {"memoryMiB": 32768, "numCPUs": 12, "diskGiB": 64, "network": {"devices": [{"dhcp4": false, "networkName": "Storage Access"}]}}}}}' > template_patch.yaml
-      yq merge -d3 -i -x -a cluster/cluster.yaml template_patch.yaml
+      # cat >template_patch.yaml <<EOL
+      # spec:
+      #   template:
+      #     spec:
+      #       memoryMiB: 32768
+      #       numCPUs: 12
+      #       diskGiB: 64
+      #       network:
+      #         devices:
+      #           - dhcp4: true
+      #             networkName: Storage Access
+      # EOL
+
+      # yq merge -d3 -i -x -a cluster/cluster.yaml template_patch.yaml
 
       cat cluster/cluster.yaml

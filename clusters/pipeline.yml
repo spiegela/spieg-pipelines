@@ -15,13 +15,11 @@ vsphere_env: &vsphere_env
   VSPHERE_PASSWORD: ((vsphere.password))
   VSPHERE_DATACENTER: Datacenter
   VSPHERE_DATASTORE: Datastore 1
-  VSPHERE_FOLDER: ClusterAPI
-  VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-1.2.4
   VSPHERE_NETWORK: VM Network
-  VSPHERE_RESOURCE_POOL: ClusterAPI
   VSPHERE_SERVER: ((vsphere.server))
   VSPHERE_SSH_AUTHORIZED_KEY: ((ssh_authorized_key))
-  VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
+  VSPHERE_RESOURCE_POOL: ClusterAPI
+  VSPHERE_FOLDER: ClusterAPI
 
 s3_env: &s3_env
   bucket: concourse
@@ -137,7 +135,7 @@ jobs:
           vars:
             capv_template_name: ubuntu-1804-kube-v1.18.2
             capv_image: http://storage.googleapis.com/capv-images/release/v1.18.2/ubuntu-1804-kube-v1.18.2.ova
-            haproxy_template_name: capv-haproxy-1.2.4
+            haproxy_template_name: capv-haproxy-v1.2.4
             haproxy_image: http://storage.googleapis.com/capv-images/extra/haproxy/release/v1.2.4/photon-3-haproxy-v1.2.4.ova
       - task: show-outputs
         <<: *show_terraform_output
@@ -195,7 +193,7 @@ jobs:
         params:
           <<: *govc_env
           IGNORE_ERROR: true
-          ARGS: vm.power -off capv-haproxy-1.2.4
+          ARGS: vm.power -off capv-haproxy-v1.2.4
       - task: convert-to-template
         file: pipelines/tasks/govc-cmd/task.yml
         input_mapping:
@@ -203,7 +201,7 @@ jobs:
         params:
           <<: *govc_env
           IGNORE_ERROR: true
-          ARGS: vm.markastemplate capv-haproxy-1.2.4
+          ARGS: vm.markastemplate capv-haproxy-v1.2.4
 
   - name: gamboge-cluster-yaml
     plan:
@@ -225,6 +223,8 @@ jobs:
           <<: *vsphere_env
           GITHUB_TOKEN: ((git_token))
           CLUSTER_NAME: gamboge
+          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-v1.2.4
+          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
           CONTROL_PLANE_MACHINE_COUNT: 3
           WOKER_MACHINE_COUNT: 1
           KUBERNETES_VERSION: 1.18.2
@@ -254,6 +254,8 @@ jobs:
           <<: *vsphere_env
           GITHUB_TOKEN: ((git_token))
           CLUSTER_NAME: jonquil
+          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-v1.2.4
+          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
           CONTROL_PLANE_MACHINE_COUNT: 3
           WOKER_MACHINE_COUNT: 1
           KUBERNETES_VERSION: 1.18.2
@@ -283,6 +285,8 @@ jobs:
           <<: *vsphere_env
           GITHUB_TOKEN: ((git_token))
           CLUSTER_NAME: mikado
+          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-v1.2.4
+          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
           CONTROL_PLANE_MACHINE_COUNT: 3
           WOKER_MACHINE_COUNT: 1
           KUBERNETES_VERSION: 1.18.2
@@ -325,7 +329,7 @@ jobs:
         params:
           COMMAND: get
           ARGS: |
-            secret vsphere-quickstart-kubeconfig -o jsonpath='.data.value'
+            secret gamboge-kubeconfig -o jsonpath='.data.value'
 
       - task: decode-secret
         config:

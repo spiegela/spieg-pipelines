@@ -79,11 +79,6 @@ resource "vsphere_virtual_machine" "capv-ubuntu-1804" {
   resource_pool_id = vsphere_resource_pool.resource_pool.id
   datastore_id = data.vsphere_datastore.datastore_1.id
   datacenter_id = data.vsphere_datacenter.dc.id
-  num_cpus = 8
-  memory = 32768
-
-  wait_for_guest_net_timeout = 0
-  wait_for_guest_ip_timeout = 0
 
   ovf_deploy {
     remote_ovf_url = var.capv_image
@@ -91,9 +86,6 @@ resource "vsphere_virtual_machine" "capv-ubuntu-1804" {
     ovf_network_map = {
       "nic0" = data.vsphere_network.vm_network.id
     }
-  }
-  network_interface {
-    network_id = data.vsphere_network.storage_access_network.id
   }
 }
 
@@ -104,18 +96,12 @@ resource "vsphere_virtual_machine" "capv-haproxy" {
   datastore_id = data.vsphere_datastore.datastore_1.id
   datacenter_id = data.vsphere_datacenter.dc.id
 
-  wait_for_guest_net_timeout = 0
-  wait_for_guest_ip_timeout = 0
-
   ovf_deploy {
     remote_ovf_url = var.haproxy_image
     disk_provisioning = "thin"
     ovf_network_map = {
       "nic0" = data.vsphere_network.vm_network.id
     }
-  }
-  network_interface {
-    network_id = data.vsphere_network.storage_access_network.id
   }
 }
 
