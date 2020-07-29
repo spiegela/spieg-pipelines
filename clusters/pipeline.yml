@@ -10,47 +10,11 @@ govc_env: &govc_env
   GOVC_RESOURCE_POOL: "ClusterAPI"
   DEBUG: "true"
 
-vsphere_env: &vsphere_env
-  VSPHERE_USERNAME: ((vsphere.user))
-  VSPHERE_PASSWORD: ((vsphere.password))
-  VSPHERE_DATACENTER: Datacenter
-  VSPHERE_DATASTORE: Datastore 1
-  VSPHERE_NETWORK: VM Network
-  VSPHERE_SERVER: ((vsphere.server))
-  VSPHERE_SSH_AUTHORIZED_KEY: ((ssh_authorized_key))
-  VSPHERE_RESOURCE_POOL: ClusterAPI
-  VSPHERE_FOLDER: ClusterAPI
-
 s3_env: &s3_env
   bucket: concourse
   endpoint: ((s3.endpoint))
   access_key_id: ((s3.access_key))
   secret_access_key: ((s3.secret_key))
-
-show_terraform_output: &show_terraform_output
-  config:
-    platform: linux
-    image_resource:
-      type: docker-image
-      source:
-        repository: busybox
-        tag: latest
-    inputs:
-      - name: terraform
-    run:
-      path: /bin/sh
-      args:
-        - -c
-        - |
-          echo "name: $(cat terraform/name)"
-          echo "metadata: $(cat terraform/metadata)"
-
-resource_types:
-  - name: terraform
-    type: docker-image
-    source:
-      repository: ljfranklin/terraform-resource
-      tag: latest
 
 resources:
   - name: pipelines
@@ -60,438 +24,129 @@ resources:
       branch: master
       private_key: ((git_private_key))
 
-  - name: terraform
-    type: terraform
-    source:
-      env_name: spieg
-      backend_type: s3
-      backend_config:
-        endpoint: ((s3.endpoint))
-        region: us-east-1
-        skip_credentials_validation: "true"
-        access_key: ((s3.access_key))
-        secret_key: ((s3.secret_key))
-        bucket: terraform
-        key: terraform.tfstate
-      vars:
-        vsphere_server: ((vsphere.server))
-        vsphere_user: ((vsphere.user))
-        vsphere_password: ((vsphere.password))
-        template_host: ((vsphere.template_host))
-
-  - name: microk8s-config
+  - name: capv-template-v1.17.x
     type: s3
     source:
-      versioned_file: ClusterAPI/microk8s/config
+      regexp: ClusterAPI/assets/capv/kube/ubuntu-1804-kube-v(1.17.5).ova
       <<: *s3_env
 
-  - name: gamboge-config
+  - name: capv-template-info-v1.17.x
     type: s3
     source:
-      versioned_file: ClusterAPI/gamboge/config
+      versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.17.x.json
       <<: *s3_env
-
-  - name: jonquil-config
-    type: s3
-    source:
-      versioned_file: ClusterAPI/jonquil/config
-      <<: *s3_env
-
-  - name: gamboge-cluster
-    type: s3
-    source:
-      versioned_file: ClusterAPI/gamboge/cluster.yaml
-      <<: *s3_env
-
-  - name: clusterctl-release
-    type: github-release
-    source:
-      owner: kubernetes-sigs
-      repository: cluster-api
-      private_key: ((git_private_key))
-      pre_release: true
-
-  - name: jonquil-cluster
-    type: s3
-    source:
-      bucket: concourse
-      versioned_file: ClusterAPI/jonquil/cluster.yaml
-      endpoint: ((s3.endpoint))
-      access_key_id: ((s3.access_key))
-      secret_access_key: ((s3.secret_key))
-
-  - name: mikado-cluster
-    type: s3
-    source:
-      bucket: concourse
-      versioned_file: ClusterAPI/mikado/cluster.yaml
-      endpoint: ((s3.endpoint))
-      access_key_id: ((s3.access_key))
-      secret_access_key: ((s3.secret_key))
 
 jobs:
 
-  - name: create-1.17-template-vms
-    plan:
-      - get: pipelines
-        trigger: true
-      - put: terraform
-        params:
-          terraform_source: pipelines/terraform/capv-template
-          vars:
-            capv_template_name: ubuntu-1804-kube-v1.17.5
-            capv_image: http://storage.googleapis.com/capv-images/release/v1.17.5/ubuntu-1804-kube-v1.17.5.ova
-            haproxy_template_name: capv-haproxy-v0.6.4
-            haproxy_image: http://storage.googleapis.com/capv-images/extra/haproxy/release/v0.6.4/capv-haproxy-v0.6.4.ova
-      - task: show-outputs
-        <<: *show_terraform_output
-      - task: power-off-vm
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          ARGS: vm.power -off ubuntu-1804-kube-v1.17.5
-      - task: convert-to-template
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          ARGS: vm.markastemplate ubuntu-1804-kube-v1.17.5
-
-  - name: make-1.17-capv-template
-    plan:
-      - get: pipelines
-        trigger: true
-      - get: terraform
-        trigger: true
-        passed:
-          - create-1.17-template-vms
-      - task: power-off-vm
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          IGNORE_ERROR: true
-          ARGS: vm.power -off ubuntu-1804-kube-v1.18.2
-      - task: convert-to-template
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          IGNORE_ERROR: true
-          ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2
-
-  - name: make-1.17-haproxy-template
-    plan:
-      - get: pipelines
-      - get: terraform
-        trigger: true
-        passed:
-          - create-1.17-template-vms
-      - task: power-off-vm
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          IGNORE_ERROR: true
-          ARGS: vm.power -off capv-haproxy-v1.2.4
-      - task: convert-to-template
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          IGNORE_ERROR: true
-          ARGS: vm.markastemplate capv-haproxy-v1.2.4
-
-  - name: create-1.18-template-vms
-    plan:
-      - get: pipelines
-        trigger: true
-      - put: terraform
-        params:
-          terraform_source: pipelines/terraform/capv-template
-          vars:
-            capv_template_name: ubuntu-1804-kube-v1.18.2
-            capv_image: http://storage.googleapis.com/capv-images/release/v1.18.2/ubuntu-1804-kube-v1.18.2.ova
-            haproxy_template_name: capv-haproxy-v1.2.4
-            haproxy_image: http://storage.googleapis.com/capv-images/extra/haproxy/release/v1.2.4/photon-3-haproxy-v1.2.4.ova
-      - task: show-outputs
-        <<: *show_terraform_output
-      - task: power-off-vm
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          ARGS: vm.power -off ubuntu-1804-kube-v1.18.2
-      - task: convert-to-template
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2
-
-  - name: make-1.18-capv-template
-    plan:
-      - get: pipelines
-        trigger: true
-      - get: terraform
-        trigger: true
-        passed:
-          - create-1.18-template-vms
-      - task: power-off-vm
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          IGNORE_ERROR: true
-          ARGS: vm.power -off ubuntu-1804-kube-v1.18.2
-      - task: convert-to-template
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          IGNORE_ERROR: true
-          ARGS: vm.markastemplate ubuntu-1804-kube-v1.18.2
-
-  - name: make-1.18-haproxy-template
-    plan:
-      - get: pipelines
-      - get: terraform
-        trigger: true
-        passed:
-          - create-1.18-template-vms
-      - task: power-off-vm
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          IGNORE_ERROR: true
-          ARGS: vm.power -off capv-haproxy-v1.2.4
-      - task: convert-to-template
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          config: config
-        params:
-          <<: *govc_env
-          IGNORE_ERROR: true
-          ARGS: vm.markastemplate capv-haproxy-v1.2.4
-
-  - name: gamboge-cluster-yaml
+  - name: capv-templates-1.17
     plan:
       - in_parallel:
-        - get: pipelines
-          trigger: true
-        - get: microk8s-config
-        - get: clusterctl-release
-          trigger: true
+          - get: pipelines
+          - get: capv-template-v1.17.x
+            trigger: true
+      - task: list-existing
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: previous-entry
+        params:
+          <<: *govc_env
+          COMMAND: ls
+          ARGS: /Datacenter/vm/ubuntu-1804-kube-v1.17.5
+      - task: check-for-previous
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: previous-entry
+          outputs:
+            - name: delete-conditions
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                if [[ `wc -l previous-entry/govc-cmd.out | awk '{print $1}'` = 0 ]]; then
+                  echo "VM doesn't already exist, skipping deletion on the next step"
+                  touch delete-conditions/skip
+                fi
+      - task: delete-previous
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          conditions: delete-conditions
+        params:
+          <<: *govc_env
+          COMMAND: vm.destroy
+          ARGS: ubuntu-1804-kube-v1.17.5
+      - task: import-ova-spec
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          files: capv-template-v1.17.x
+        output_mapping:
+          output: ova-spec
+        params:
+          <<: *govc_env
+          COMMAND: import.spec
+          ARGS: files/ubuntu-1804-kube-v1.17.5.ova
+      - task: configure-ova-network
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: cincan/jq
+              tag: latest
+          inputs:
+            - name: ova-spec
+          outputs:
+            - name: configured-ova-spec
+          run:
+            path: /bin/ash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == "true" ]]; then
+                  set -x
+                fi
+
+                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
+      - task: import-ova
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: pivotalgreenhouse/govc
+              tag: latest
+          inputs:
+            - name: configured-ova-spec
+            - name: capv-template-v1.17.x
           params:
-            glob: clusterctl-linux-amd64
-
-      - task: generate-cluster-yaml
-        file: pipelines/tasks/vsphere-cluster-config/task.yml
-        input_mapping:
-          clusterctl: clusterctl-release
-          config: microk8s-config
-        params:
-          <<: *vsphere_env
-          GITHUB_TOKEN: ((git_token))
-          CLUSTER_NAME: gamboge
-          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-v1.2.4
-          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
-          CONTROL_PLANE_MACHINE_COUNT: 3
-          WOKER_MACHINE_COUNT: 1
-          KUBERNETES_VERSION: 1.18.2
-          NAMESPACE: default
-
-      - put: gamboge-cluster
-        params:
-          file: cluster/cluster.yaml
-
-  - name: jonquil-cluster-yaml
-    plan:
-      - in_parallel:
-          - get: pipelines
-            trigger: true
-          - get: microk8s-config
-          - get: clusterctl-release
-            trigger: true
-            params:
-              glob: clusterctl-linux-amd64
-
-      - task: generate-cluster-yaml
-        file: pipelines/tasks/vsphere-cluster-config/task.yml
-        input_mapping:
-          clusterctl: clusterctl-release
-          config: microk8s-config
-        params:
-          <<: *vsphere_env
-          GITHUB_TOKEN: ((git_token))
-          CLUSTER_NAME: jonquil
-          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-v0.6.4
-          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.17.5
-          CONTROL_PLANE_MACHINE_COUNT: 3
-          WOKER_MACHINE_COUNT: 1
-          KUBERNETES_VERSION: 1.17.5
-          NAMESPACE: default
-
-      - put: jonquil-cluster
-        params:
-          file: cluster/cluster.yaml
-
-  - name: mikado-cluster-yaml
-    plan:
-      - in_parallel:
-          - get: pipelines
-            trigger: true
-          - get: microk8s-config
-          - get: clusterctl-release
-            trigger: true
-            params:
-              glob: clusterctl-linux-amd64
-
-      - task: generate-cluster-yaml
-        file: pipelines/tasks/vsphere-cluster-config/task.yml
-        input_mapping:
-          clusterctl: clusterctl-release
-          config: microk8s-config
-        params:
-          <<: *vsphere_env
-          GITHUB_TOKEN: ((git_token))
-          CLUSTER_NAME: mikado
-          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy-v1.2.4
-          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
-          CONTROL_PLANE_MACHINE_COUNT: 3
-          WOKER_MACHINE_COUNT: 1
-          KUBERNETES_VERSION: 1.18.2
-          NAMESPACE: default
-
-      - put: mikado-cluster
-        params:
-          file: cluster/cluster.yaml
-
-  - name: gamboge-cluster
-    plan:
-      - in_parallel:
-        - get: pipelines
-        - get: microk8s-config
-        - get: gamboge-cluster
-          trigger: true
-          passed:
-            - gamboge-cluster-yaml
-
-      - task: create-cluster
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        input_mapping:
-          config: microk8s-config
-          templates: gamboge-cluster
-
-      - task: wait-until-available
-        file: pipelines/tasks/wait-until-cluster-available/task.yml
-        input_mapping:
-          config: microk8s-config
-        params:
-          NAME: gamboge
-
-      - task: fetch-secret
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        input_mapping:
-          config: microk8s-config
-          templates: gamboge-cluster
-        output_mapping:
-          output: encoded-secret
-        params:
-          COMMAND: get
-          ARGS: |
-            secret gamboge-kubeconfig -o jsonpath='.data.value'
-
-      - task: decode-secret
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: alpine
-              tag: latest
-          inputs:
-            - name: encoded-secret
-          outputs:
-            - name: kubeconfig
+            <<: *govc_env
           run:
-            path: /bin/sh
+            path: /bin/bash
             args:
               - -c
               - |
-                base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
-
-      - put: gamboge-config
+                if [[ $DEBUG == true ]]; then
+                  set -x
+                fi
+                govc import.ova --options=configured-ova-spec/spec.json capv-template-v1.17.x/ubuntu-1804-kube-v1.17.5.ova
+      - task: templatize
+        file: pipelines/tasks/govc-cmd/task.yml
         params:
-          file: kubeconfig/config
-
-  - name: jonquil-cluster
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: microk8s-config
-          - get: jonquil-cluster
-            trigger: true
-            passed:
-              - jonquil-cluster-yaml
-
-      - task: create-cluster
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        input_mapping:
-          config: microk8s-config
-          templates: jonquil-cluster
-
-      - task: wait-until-available
-        file: pipelines/tasks/wait-until-cluster-available/task.yml
-        input_mapping:
-          config: microk8s-config
-        params:
-          NAME: jonquil
-
-      - task: fetch-secret
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        input_mapping:
-          config: microk8s-config
-          templates: jonquil-cluster
+          <<: *govc_env
+          ARGS: vm.markastemplate ubuntu-1804-kube-v1.17.x
+      - task: get-info
+        file: pipelines/tasks/govc-cmd/task.yml
         output_mapping:
-          output: encoded-secret
+          output: vm-info
         params:
-          COMMAND: get
-          ARGS: |
-            secret jonquil-kubeconfig -o jsonpath='.data.value'
-
-      - task: decode-secret
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: alpine
-              tag: latest
-          inputs:
-            - name: encoded-secret
-          outputs:
-            - name: kubeconfig
-          run:
-            path: /bin/sh
-            args:
-              - -c
-              - |
-                base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
-
-      - put: jonquil-config
+          <<: *govc_env
+          ARGS: govc vm.info -json -r /Datacenter/vm/ubuntu-1804-kube-v1.17.x
+      - put: capv-template-info-v1.17.x
         params:
-          file: kubeconfig/config
+          file: vm-info/govc-cmd.out

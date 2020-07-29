@@ -18,6 +18,8 @@ params:
 inputs:
   - name: config
   - name: templates
+  - name: conditions
+    optional: true
 
 run:
   path: /bin/bash
@@ -28,6 +30,10 @@ run:
         set -ex
       else
         set -e
+      fi
+
+      if [ -f "conditions/skip" ]; then
+        echo "file: control/skip file exists, so skipping this task"
       fi
 
       if [[ $IGNORE_ERROR == true ]]; then

@@ -9,6 +9,7 @@ image_resource:
 
 params:
   DEBUG:
+  COMMAND:
   ARGS:
   GOVC_INSECURE:
   GOVC_URL:
@@ -21,8 +22,13 @@ params:
   IGNORE_ERROR:
 
 inputs:
+  - name: conditions
+    optional: true
   - name: files
     optional: true
+
+outputs:
+  - name: output
 
 run:
   path: /bin/bash
@@ -34,6 +40,11 @@ run:
         ls -lr files
       fi
 
+      if [ -f "conditions/skip" ]; then
+        echo "file: control/skip file exists, so skipping this task"
+        exit 0
+      fi
+
       if [[ $IGNORE_ERROR == true ]]; then
         set +e
       else
@@ -41,7 +52,6 @@ run:
       fi
 
       read -r -a ARGS <<< "$ARGS"
-
-      govc "${ARGS[@]}"
+      govc $COMMAND "${ARGS[@]}" > output/govc-cmd.out
 
       exit 0
