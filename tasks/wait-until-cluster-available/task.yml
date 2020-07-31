@@ -57,7 +57,7 @@ run:
 
         set -e
 
-        if [[ "${STATES}" == "TRUE TRUE TRUE" ]]; then
+        if [[ "${STATES}" == "True True True" ]]; then
           echo "Cluster Available"
           exit 0
         fi

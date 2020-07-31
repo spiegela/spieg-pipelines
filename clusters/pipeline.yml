@@ -346,7 +346,7 @@ jobs:
           VSPHERE_HAPROXY_TEMPLATE: capv-haproxy
           VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.17.5
           CONTROL_PLANE_MACHINE_COUNT: 3
-          WOKER_MACHINE_COUNT: 1
+          WORKER_MACHINE_COUNT: 1
           KUBERNETES_VERSION: 1.17.5
           NAMESPACE: default
           TEMPLATE_MEMORY: 32768
@@ -387,7 +387,7 @@ jobs:
         params:
           COMMAND: get
           ARGS: |
-            secret gamboge-kubeconfig -o jsonpath='.data.value'
+            secret gamboge-kubeconfig -o jsonpath='{.data.value}'
       - task: decode-secret
         config:
           platform: linux
