@@ -349,6 +349,11 @@ jobs:
           WOKER_MACHINE_COUNT: 1
           KUBERNETES_VERSION: 1.17.5
           NAMESPACE: default
+          TEMPLATE_MEMORY: 32768
+          TEMPLATE_DISK: 64
+          TEMPLATE_CPU: 12
+          TEMPLATE_SECONDARY_NETWORK: Storage Access
+          CLUSTER_CIDR: 172.16.0.0/16
       - put: gamboge-cluster-yaml
         params:
           file: cluster/cluster.yaml

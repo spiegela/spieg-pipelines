@@ -31,6 +31,11 @@ params:
   VSPHERE_SERVER:
   VSPHERE_SSH_AUTHORIZED_KEY:
   VSPHERE_TEMPLATE:
+  TEMPLATE_MEMORY:
+  TEMPLATE_DISK:
+  TEMPLATE_CPU:
+  TEMPLATE_SECONDARY_NETWORK:
+  CLUSTER_CIDR:
 run:
   path: /bin/ash
   args:
@@ -38,23 +43,34 @@ run:
     - |
       set -e
       set -x
-
       chmod +x clusterctl/clusterctl-linux-amd64
       clusterctl/clusterctl-linux-amd64 config cluster gamboge > cluster/cluster.yaml
 
-      # cat >template_patch.yaml <<EOL
-      # spec:
-      #   template:
-      #     spec:
-      #       memoryMiB: 32768
-      #       numCPUs: 12
-      #       diskGiB: 64
-      #       network:
-      #         devices:
-      #           - dhcp4: true
-      #             networkName: Storage Access
-      # EOL
+      # Replace existing CIDR block with new
+      cat >cluster_template_patch.yaml  <<EOL
+      spec:
+        clusterNetwork:
+          pods:
+            cidrBlocks:
+              - ${CLUSTER_CIDR}
+      EOL
+      yq merge -d0 -i -x cluster/cluster.yaml cluster_template_patch.yaml
 
-      # yq merge -d3 -i -x -a cluster/cluster.yaml template_patch.yaml
+      # Set VM template resoruces & append new interface to network devices
+      cat >mt_template_patch.yaml <<EOL
+      spec:
+        template:
+          spec:
+            memoryMiB: ${TEMPLATE_MEMORY}
+            numCPUs: ${TEMPLATE_CPU}
+            diskGiB: ${TEMPLATE_DISK}
+            network:
+              devices:
+                - dhcp4: true
+                  networkName: ${TEMPLATE_SECONDARY_NETWORK}
+      EOL
+      yq merge -d3 -i -x -a cluster/cluster.yaml mt_template_patch.yaml
 
+      echo "Printing cluster configuration YAML"
+      echo
       cat cluster/cluster.yaml
