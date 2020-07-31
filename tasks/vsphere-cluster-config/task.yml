@@ -40,13 +40,6 @@ run:
       set -x
 
       chmod +x clusterctl/clusterctl-linux-amd64
-
-      # ignore errors for the init, so things will continue if it has already
-      # been initialized
-      set +e
-      clusterctl/clusterctl-linux-amd64 init --infrastructure vsphere
-      set -e
-
       clusterctl/clusterctl-linux-amd64 config cluster gamboge > cluster/cluster.yaml
 
       # cat >template_patch.yaml <<EOL
