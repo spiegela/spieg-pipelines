@@ -16,6 +16,17 @@ s3_env: &s3_env
   access_key_id: ((s3.access_key))
   secret_access_key: ((s3.secret_key))
 
+vsphere_env: &vsphere_env
+  VSPHERE_USERNAME: ((vsphere.user))
+  VSPHERE_PASSWORD: ((vsphere.password))
+  VSPHERE_DATACENTER: Datacenter
+  VSPHERE_DATASTORE: Datastore 1
+  VSPHERE_NETWORK: VM Network
+  VSPHERE_SERVER: ((vsphere.server))
+  VSPHERE_SSH_AUTHORIZED_KEY: ((ssh_authorized_key))
+  VSPHERE_RESOURCE_POOL: ClusterAPI
+  VSPHERE_FOLDER: ClusterAPI
+
 resources:
   - name: pipelines
     type: git
@@ -46,6 +57,33 @@ resources:
     type: s3
     source:
       versioned_file: ClusterAPI/assets/capv/kube/haproxy-template-info-v0.6.x.json
+      <<: *s3_env
+
+  - name: microk8s-config
+    type: s3
+    source:
+      versioned_file: ClusterAPI/microk8s/config
+      <<: *s3_env
+
+  - name: clusterctl-release
+    type: github-release
+    source:
+      access_token: ((git_token))
+      owner: kubernetes-sigs
+      repository: cluster-api
+      private_key: ((git_private_key))
+      pre_release: true
+
+  - name: gamboge-cluster-yaml
+    type: s3
+    source:
+      versioned_file: ClusterAPI/gamboge/cluster.yaml
+      <<: *s3_env
+
+  - name: gamboge-kubeconfig
+    type: s3
+    source:
+      versioned_file: ClusterAPI/gamboge/kubeconfig
       <<: *s3_env
 
 jobs:
@@ -278,3 +316,91 @@ jobs:
         params:
           file: vm-info/govc-cmd.out
 
+  - name: gamboge-cluster-yaml
+    plan:
+      - in_parallel:
+          - get: pipelines
+            trigger: true
+          - get: kube-template-info-v1.17.x
+            trigger: true
+            passed:
+              - kube-templates-1.17.x
+          - get: haproxy-template-info-v0.6.x
+            trigger: true
+            passed:
+              - haproxy-templates-0.6.x
+          - get: microk8s-config
+          - get: clusterctl-release
+            trigger: true
+            params:
+              glob: clusterctl-linux-amd64
+      - task: generate-cluster-yaml
+        file: pipelines/tasks/vsphere-cluster-config/task.yml
+        input_mapping:
+          clusterctl: clusterctl-release
+          config: microk8s-config
+        params:
+          <<: *vsphere_env
+          GITHUB_TOKEN: ((git_token))
+          CLUSTER_NAME: gamboge
+          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy
+          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.17.5
+          CONTROL_PLANE_MACHINE_COUNT: 3
+          WOKER_MACHINE_COUNT: 1
+          KUBERNETES_VERSION: 1.17.5
+          NAMESPACE: default
+      - put: gamboge-cluster-yaml
+        params:
+          file: cluster/cluster.yaml
+
+  - name: gamboge-cluster
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: microk8s-config
+          - get: gamboge-cluster-yaml
+            trigger: true
+            passed:
+              - gamboge-cluster-yaml
+      - task: create-cluster
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        input_mapping:
+          config: microk8s-config
+          templates: gamboge-cluster-yaml
+      - task: wait-until-available
+        file: pipelines/tasks/wait-until-cluster-available/task.yml
+        input_mapping:
+          config: microk8s-config
+        params:
+          NAME: gamboge
+      - task: fetch-secret
+        file: pipelines/tasks/kubectl-cmd/task.yml
+        input_mapping:
+          config: microk8s-config
+        output_mapping:
+          output: encoded-secret
+        params:
+          COMMAND: get
+          ARGS: |
+            secret gamboge-kubeconfig -o jsonpath='.data.value'
+      - task: decode-secret
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: encoded-secret
+          outputs:
+            - name: kubeconfig
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
+      - put: gamboge-kubeconfig
+        params:
+          file: kubeconfig/config
