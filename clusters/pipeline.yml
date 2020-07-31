@@ -24,25 +24,37 @@ resources:
       branch: master
       private_key: ((git_private_key))
 
-  - name: capv-template-v1.17.x
+  - name: kube-template-v1.17.x
     type: s3
     source:
       regexp: ClusterAPI/assets/capv/kube/ubuntu-1804-kube-v(1.17.5).ova
       <<: *s3_env
 
-  - name: capv-template-info-v1.17.x
+  - name: kube-template-info-v1.17.x
     type: s3
     source:
       versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.17.x.json
       <<: *s3_env
 
+  - name: haproxy-template-v0.6.x
+    type: s3
+    source:
+      regexp: ClusterAPI/assets/capv/haproxy/capv-haproxy-v(0.6.4).ova
+      <<: *s3_env
+
+  - name: haproxy-template-info-v0.6.x
+    type: s3
+    source:
+      versioned_file: ClusterAPI/assets/capv/kube/haproxy-template-info-v0.6.x.json
+      <<: *s3_env
+
 jobs:
 
-  - name: capv-templates-1.17
+  - name: kube-templates-1.17.x
     plan:
       - in_parallel:
           - get: pipelines
-          - get: capv-template-v1.17.x
+          - get: kube-template-v1.17.x
             trigger: true
       - task: list-existing
         file: pipelines/tasks/govc-cmd/task.yml
@@ -84,7 +96,7 @@ jobs:
       - task: import-ova-spec
         file: pipelines/tasks/govc-cmd/task.yml
         input_mapping:
-          files: capv-template-v1.17.x
+          files: kube-template-v1.17.x
         output_mapping:
           output: ova-spec
         params:
@@ -111,7 +123,6 @@ jobs:
                 if [[ $DEBUG == "true" ]]; then
                   set -x
                 fi
-
                 jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
       - task: import-ova
         config:
@@ -123,7 +134,7 @@ jobs:
               tag: latest
           inputs:
             - name: configured-ova-spec
-            - name: capv-template-v1.17.x
+            - name: kube-template-v1.17.x
           params:
             <<: *govc_env
           run:
@@ -134,19 +145,136 @@ jobs:
                 if [[ $DEBUG == true ]]; then
                   set -x
                 fi
-                govc import.ova --options=configured-ova-spec/spec.json capv-template-v1.17.x/ubuntu-1804-kube-v1.17.5.ova
+                govc import.ova --options=configured-ova-spec/spec.json kube-template-v1.17.x/ubuntu-1804-kube-v1.17.5.ova
       - task: templatize
         file: pipelines/tasks/govc-cmd/task.yml
         params:
           <<: *govc_env
-          ARGS: vm.markastemplate ubuntu-1804-kube-v1.17.x
+          COMMAND: vm.markastemplate
+          ARGS: ubuntu-1804-kube-v1.17.5
       - task: get-info
         file: pipelines/tasks/govc-cmd/task.yml
         output_mapping:
           output: vm-info
         params:
           <<: *govc_env
-          ARGS: govc vm.info -json -r /Datacenter/vm/ubuntu-1804-kube-v1.17.x
-      - put: capv-template-info-v1.17.x
+          COMMAND: vm.info
+          ARGS: -json -r /Datacenter/vm/ubuntu-1804-kube-v1.17.5
+      - put: kube-template-info-v1.17.x
         params:
           file: vm-info/govc-cmd.out
+
+  - name: haproxy-templates-0.6.x
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: haproxy-template-v0.6.x
+            trigger: true
+      - task: list-existing
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: previous-entry
+        params:
+          <<: *govc_env
+          COMMAND: ls
+          ARGS: /Datacenter/vm/capv-haproxy
+      - task: check-for-previous
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: previous-entry
+          outputs:
+            - name: delete-conditions
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                if [[ `wc -l previous-entry/govc-cmd.out | awk '{print $1}'` = 0 ]]; then
+                  echo "VM doesn't already exist, skipping deletion on the next step"
+                  touch delete-conditions/skip
+                fi
+      - task: delete-previous
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          conditions: delete-conditions
+        params:
+          <<: *govc_env
+          COMMAND: vm.destroy
+          ARGS: capv-haproxy
+      - task: import-ova-spec
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          files: haproxy-template-v0.6.x
+        output_mapping:
+          output: ova-spec
+        params:
+          <<: *govc_env
+          COMMAND: import.spec
+          ARGS: files/capv-haproxy-v0.6.4.ova
+      - task: configure-ova-network
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: cincan/jq
+              tag: latest
+          inputs:
+            - name: ova-spec
+          outputs:
+            - name: configured-ova-spec
+          run:
+            path: /bin/ash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == "true" ]]; then
+                  set -x
+                fi
+                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
+      - task: import-ova
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: pivotalgreenhouse/govc
+              tag: latest
+          inputs:
+            - name: configured-ova-spec
+            - name: haproxy-template-v0.6.x
+          params:
+            <<: *govc_env
+          run:
+            path: /bin/bash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == true ]]; then
+                  set -x
+                fi
+                govc import.ova --options=configured-ova-spec/spec.json haproxy-template-v0.6.x/capv-haproxy-v0.6.4.ova
+      - task: templatize
+        file: pipelines/tasks/govc-cmd/task.yml
+        params:
+          <<: *govc_env
+          COMMAND: vm.markastemplate
+          ARGS: capv-haproxy
+      - task: get-info
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: vm-info
+        params:
+          <<: *govc_env
+          COMMAND: vm.info
+          ARGS: -json -r /Datacenter/vm/capv-haproxy
+      - put: haproxy-template-info-v0.6.x
+        params:
+          file: vm-info/govc-cmd.out
+
