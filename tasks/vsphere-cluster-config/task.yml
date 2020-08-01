@@ -56,6 +56,17 @@ run:
       EOL
       yq merge -d0 -i -x cluster/cluster.yaml cluster_template_patch.yaml
 
+      # Add secondary network to loadbalancer
+      cat >lb_template_patch.yaml <<EOL
+      spec:
+        virtualMachineConfiguration:
+          network:
+            devices:
+              - dhcp4: true
+                networkName: ${TEMPLATE_SECONDARY_NETWORK}
+      EOL
+      yq merge -d1 -i -x -a cluster/cluster.yaml lb_template_patch.yaml
+
       # Set VM template resoruces & append new interface to network devices
       cat >mt_template_patch.yaml <<EOL
       spec:
