@@ -41,10 +41,22 @@ resources:
       regexp: ClusterAPI/assets/capv/kube/ubuntu-1804-kube-v(1.17.5).ova
       <<: *s3_env
 
+  - name: kube-template-v1.18.x
+    type: s3
+    source:
+      regexp: ClusterAPI/assets/capv/kube/ubuntu-1804-kube-v(1.18.2).ova
+      <<: *s3_env
+
   - name: kube-template-info-v1.17.x
     type: s3
     source:
       versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.17.x.json
+      <<: *s3_env
+
+  - name: kube-template-info-v1.18.x
+    type: s3
+    source:
+      versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.18.x.json
       <<: *s3_env
 
   - name: haproxy-template-v0.6.x
@@ -53,10 +65,22 @@ resources:
       regexp: ClusterAPI/assets/capv/haproxy/capv-haproxy-v(0.6.4).ova
       <<: *s3_env
 
+  - name: haproxy-template-v1.2.x
+    type: s3
+    source:
+      regexp: ClusterAPI/assets/capv/haproxy/photon-3-haproxy-v(1.2.4).ova
+      <<: *s3_env
+
   - name: haproxy-template-info-v0.6.x
     type: s3
     source:
       versioned_file: ClusterAPI/assets/capv/kube/haproxy-template-info-v0.6.x.json
+      <<: *s3_env
+
+  - name: haproxy-template-info-v1.2.x
+    type: s3
+    source:
+      versioned_file: ClusterAPI/assets/capv/kube/haproxy-template-info-v1.2.x.json
       <<: *s3_env
 
   - name: microk8s-config
@@ -80,10 +104,22 @@ resources:
       versioned_file: ClusterAPI/gamboge/cluster.yaml
       <<: *s3_env
 
+  - name: jonquil-cluster-yaml
+    type: s3
+    source:
+      versioned_file: ClusterAPI/jonquil/cluster.yaml
+      <<: *s3_env
+
   - name: gamboge-kubeconfig
     type: s3
     source:
       versioned_file: ClusterAPI/gamboge/kubeconfig
+      <<: *s3_env
+
+  - name: jonquil-kubeconfig
+    type: s3
+    source:
+      versioned_file: ClusterAPI/jonquil/kubeconfig
       <<: *s3_env
 
 jobs:
@@ -202,6 +238,120 @@ jobs:
         params:
           file: vm-info/govc-cmd.out
 
+  - name: kube-templates-1.18.x
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: kube-template-v1.18.x
+            trigger: true
+      - task: list-existing
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: previous-entry
+        params:
+          <<: *govc_env
+          COMMAND: ls
+          ARGS: /Datacenter/vm/ubuntu-1804-kube-v1.18.2
+      - task: check-for-previous
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: previous-entry
+          outputs:
+            - name: delete-conditions
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                if [[ `wc -l previous-entry/govc-cmd.out | awk '{print $1}'` = 0 ]]; then
+                  echo "VM doesn't already exist, skipping deletion on the next step"
+                  touch delete-conditions/skip
+                fi
+      - task: delete-previous
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          conditions: delete-conditions
+        params:
+          <<: *govc_env
+          COMMAND: vm.destroy
+          ARGS: ubuntu-1804-kube-v1.18.2
+      - task: import-ova-spec
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          files: kube-template-v1.18.x
+        output_mapping:
+          output: ova-spec
+        params:
+          <<: *govc_env
+          COMMAND: import.spec
+          ARGS: files/ubuntu-1804-kube-v1.18.2.ova
+      - task: configure-ova-network
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: cincan/jq
+              tag: latest
+          inputs:
+            - name: ova-spec
+          outputs:
+            - name: configured-ova-spec
+          run:
+            path: /bin/ash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == "true" ]]; then
+                  set -x
+                fi
+                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
+      - task: import-ova
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: pivotalgreenhouse/govc
+              tag: latest
+          inputs:
+            - name: configured-ova-spec
+            - name: kube-template-v1.18.x
+          params:
+            <<: *govc_env
+          run:
+            path: /bin/bash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == true ]]; then
+                  set -x
+                fi
+                govc import.ova --options=configured-ova-spec/spec.json kube-template-v1.17.x/ubuntu-1804-kube-v1.18.2.ova
+      - task: templatize
+        file: pipelines/tasks/govc-cmd/task.yml
+        params:
+          <<: *govc_env
+          COMMAND: vm.markastemplate
+          ARGS: ubuntu-1804-kube-v1.18.2
+      - task: get-info
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: vm-info
+        params:
+          <<: *govc_env
+          COMMAND: vm.info
+          ARGS: -json -r /Datacenter/vm/ubuntu-1804-kube-v1.18.2
+      - put: kube-template-info-v1.18.x
+        params:
+          file: vm-info/govc-cmd.out
+
   - name: haproxy-templates-0.6.x
     plan:
       - in_parallel:
@@ -316,6 +466,120 @@ jobs:
         params:
           file: vm-info/govc-cmd.out
 
+  - name: haproxy-templates-1.2.x
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: haproxy-template-v1.2.x
+            trigger: true
+      - task: list-existing
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: previous-entry
+        params:
+          <<: *govc_env
+          COMMAND: ls
+          ARGS: /Datacenter/vm/capv-haproxy
+      - task: check-for-previous
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: previous-entry
+          outputs:
+            - name: delete-conditions
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                if [[ `wc -l previous-entry/govc-cmd.out | awk '{print $1}'` = 0 ]]; then
+                  echo "VM doesn't already exist, skipping deletion on the next step"
+                  touch delete-conditions/skip
+                fi
+      - task: delete-previous
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          conditions: delete-conditions
+        params:
+          <<: *govc_env
+          COMMAND: vm.destroy
+          ARGS: capv-haproxy
+      - task: import-ova-spec
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          files: haproxy-template-v1.2.x
+        output_mapping:
+          output: ova-spec
+        params:
+          <<: *govc_env
+          COMMAND: import.spec
+          ARGS: files/photon-3-haproxy-v1.2.4.ova
+      - task: configure-ova-network
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: cincan/jq
+              tag: latest
+          inputs:
+            - name: ova-spec
+          outputs:
+            - name: configured-ova-spec
+          run:
+            path: /bin/ash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == "true" ]]; then
+                  set -x
+                fi
+                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
+      - task: import-ova
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: pivotalgreenhouse/govc
+              tag: latest
+          inputs:
+            - name: configured-ova-spec
+            - name: haproxy-template-v0.6.x
+          params:
+            <<: *govc_env
+          run:
+            path: /bin/bash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == true ]]; then
+                  set -x
+                fi
+                govc import.ova --options=configured-ova-spec/spec.json haproxy-template-v1.2.x/photon-3-haproxy-v1.2.4.ova
+      - task: templatize
+        file: pipelines/tasks/govc-cmd/task.yml
+        params:
+          <<: *govc_env
+          COMMAND: vm.markastemplate
+          ARGS: capv-haproxy
+      - task: get-info
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: vm-info
+        params:
+          <<: *govc_env
+          COMMAND: vm.info
+          ARGS: -json -r /Datacenter/vm/capv-haproxy
+      - put: haproxy-template-info-v1.2.x
+        params:
+          file: vm-info/govc-cmd.out
+
   - name: gamboge-cluster-yaml
     plan:
       - in_parallel:
@@ -359,6 +623,14 @@ jobs:
           file: cluster/cluster.yaml
 
   - name: gamboge-cluster
+    on_failure:
+      task: delete-cluster
+      file: pipelines/tasks/kubectl-cmd/task.yml
+      input_mapping:
+        config: microk8s-config
+      params:
+        COMMAND: delete
+        ARGS: cluter gamboge
     plan:
       - in_parallel:
           - get: pipelines
@@ -386,8 +658,7 @@ jobs:
           output: encoded-secret
         params:
           COMMAND: get
-          ARGS: |
-            secret gamboge-kubeconfig -o jsonpath='{.data.value}'
+          ARGS: secret gamboge-kubeconfig -o jsonpath='{.data.value}'
       - task: decode-secret
         config:
           platform: linux
@@ -404,8 +675,107 @@ jobs:
             path: /bin/sh
             args:
               - -c
-              - |
-                base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
+              - base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
       - put: gamboge-kubeconfig
+        params:
+          file: kubeconfig/config
+
+  - name: jonquil-cluster-yaml
+    plan:
+      - in_parallel:
+          - get: pipelines
+            trigger: true
+          - get: kube-template-info-v1.18.x
+            trigger: true
+            passed:
+              - kube-templates-1.18.x
+          - get: haproxy-template-info-v1.2.x
+            trigger: true
+            passed:
+              - haproxy-templates-1.2.x
+          - get: microk8s-config
+          - get: clusterctl-release
+            trigger: true
+            params:
+              glob: clusterctl-linux-amd64
+      - task: generate-cluster-yaml
+        file: pipelines/tasks/vsphere-cluster-config/task.yml
+        input_mapping:
+          clusterctl: clusterctl-release
+          config: microk8s-config
+        params:
+          <<: *vsphere_env
+          GITHUB_TOKEN: ((git_token))
+          CLUSTER_NAME: jonquil
+          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy
+          VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
+          CONTROL_PLANE_MACHINE_COUNT: 3
+          WORKER_MACHINE_COUNT: 1
+          KUBERNETES_VERSION: 1.18.2
+          NAMESPACE: default
+          TEMPLATE_MEMORY: 32768
+          TEMPLATE_DISK: 64
+          TEMPLATE_CPU: 12
+          TEMPLATE_SECONDARY_NETWORK: Storage Access
+          CLUSTER_CIDR: 172.17.0.0/16
+      - put: jonquil-cluster-yaml
+        params:
+          file: cluster/cluster.yaml
+
+  - name: jonquil-cluster
+    on_failure:
+      task: delete-cluster
+      file: pipelines/tasks/kubectl-cmd/task.yml
+      input_mapping:
+        config: microk8s-config
+      params:
+        COMMAND: delete
+        ARGS: cluter jonquil
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: microk8s-config
+          - get: jonquil-cluster-yaml
+            trigger: true
+            passed:
+              - jonquil-cluster-yaml
+      - task: create-cluster
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        input_mapping:
+          config: microk8s-config
+          templates: jonquil-cluster-yaml
+      - task: wait-until-available
+        file: pipelines/tasks/wait-until-cluster-available/task.yml
+        input_mapping:
+          config: microk8s-config
+        params:
+          NAME: jonquil
+      - task: fetch-secret
+        file: pipelines/tasks/kubectl-cmd/task.yml
+        input_mapping:
+          config: microk8s-config
+        output_mapping:
+          output: encoded-secret
+        params:
+          COMMAND: get
+          ARGS: secret jonquil-kubeconfig -o jsonpath='{.data.value}'
+      - task: decode-secret
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: encoded-secret
+          outputs:
+            - name: kubeconfig
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
+      - put: jonquil-kubeconfig
         params:
           file: kubeconfig/config

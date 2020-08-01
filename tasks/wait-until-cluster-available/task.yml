@@ -9,7 +9,7 @@ image_resource:
 
 params:
   DEBUG:
-  TIMEOUT: 1800
+  TIMEOUT: 300
   KUBECONFIG: config/config
   NAMESPACE:
   NAME:
@@ -62,7 +62,7 @@ run:
           exit 0
         fi
 
-        sleep 1
+        sleep 2
       done
 
       echo "Timed out waitng for cluster with name $NAME to become ready"
