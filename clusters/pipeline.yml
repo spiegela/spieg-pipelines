@@ -333,7 +333,7 @@ jobs:
                 if [[ $DEBUG == true ]]; then
                   set -x
                 fi
-                govc import.ova --options=configured-ova-spec/spec.json kube-template-v1.17.x/ubuntu-1804-kube-v1.18.2.ova
+                govc import.ova --options=configured-ova-spec/spec.json kube-template-v1.18.x/ubuntu-1804-kube-v1.18.2.ova
       - task: templatize
         file: pipelines/tasks/govc-cmd/task.yml
         params:
@@ -479,7 +479,7 @@ jobs:
         params:
           <<: *govc_env
           COMMAND: ls
-          ARGS: /Datacenter/vm/capv-haproxy
+          ARGS: /Datacenter/vm/photon-3-haproxy-v1.2.4
       - task: check-for-previous
         config:
           platform: linux
@@ -508,7 +508,7 @@ jobs:
         params:
           <<: *govc_env
           COMMAND: vm.destroy
-          ARGS: capv-haproxy
+          ARGS: photon-3-haproxy-v1.2.4
       - task: import-ova-spec
         file: pipelines/tasks/govc-cmd/task.yml
         input_mapping:
@@ -550,7 +550,7 @@ jobs:
               tag: latest
           inputs:
             - name: configured-ova-spec
-            - name: haproxy-template-v0.6.x
+            - name: haproxy-template-v1.2.x
           params:
             <<: *govc_env
           run:
@@ -567,7 +567,7 @@ jobs:
         params:
           <<: *govc_env
           COMMAND: vm.markastemplate
-          ARGS: capv-haproxy
+          ARGS: photon-3-haproxy-v1.2.4
       - task: get-info
         file: pipelines/tasks/govc-cmd/task.yml
         output_mapping:
@@ -575,7 +575,7 @@ jobs:
         params:
           <<: *govc_env
           COMMAND: vm.info
-          ARGS: -json -r /Datacenter/vm/capv-haproxy
+          ARGS: -json -r /Datacenter/vm/photon-3-haproxy-v1.2.4
       - put: haproxy-template-info-v1.2.x
         params:
           file: vm-info/govc-cmd.out
@@ -630,7 +630,7 @@ jobs:
         config: microk8s-config
       params:
         COMMAND: delete
-        ARGS: cluter gamboge
+        ARGS: cluster gamboge
     plan:
       - in_parallel:
           - get: pipelines
@@ -707,7 +707,7 @@ jobs:
           <<: *vsphere_env
           GITHUB_TOKEN: ((git_token))
           CLUSTER_NAME: jonquil
-          VSPHERE_HAPROXY_TEMPLATE: capv-haproxy
+          VSPHERE_HAPROXY_TEMPLATE: photon-3-haproxy-v1.2.4
           VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
           CONTROL_PLANE_MACHINE_COUNT: 3
           WORKER_MACHINE_COUNT: 1
@@ -730,7 +730,7 @@ jobs:
         config: microk8s-config
       params:
         COMMAND: delete
-        ARGS: cluter jonquil
+        ARGS: cluster jonquil
     plan:
       - in_parallel:
           - get: pipelines

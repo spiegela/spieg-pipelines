@@ -9,7 +9,7 @@ image_resource:
 
 params:
   DEBUG:
-  TIMEOUT: 300
+  TIMEOUT: 600
   KUBECONFIG: config/config
   NAMESPACE:
   NAME:
