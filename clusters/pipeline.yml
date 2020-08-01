@@ -96,7 +96,6 @@ resources:
       owner: kubernetes-sigs
       repository: cluster-api
       private_key: ((git_private_key))
-      pre_release: true
 
   - name: gamboge-cluster-yaml
     type: s3
@@ -611,7 +610,7 @@ jobs:
           VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.17.5
           CONTROL_PLANE_MACHINE_COUNT: 3
           WORKER_MACHINE_COUNT: 1
-          KUBERNETES_VERSION: 1.17.5
+          KUBERNETES_VERSION: v1.17.5
           NAMESPACE: default
           TEMPLATE_MEMORY: 32768
           TEMPLATE_DISK: 64
@@ -623,6 +622,8 @@ jobs:
           file: cluster/cluster.yaml
 
   - name: gamboge-cluster
+    serial_groups:
+      - cluster-creation
     on_failure:
       task: delete-cluster
       file: pipelines/tasks/kubectl-cmd/task.yml
@@ -711,7 +712,7 @@ jobs:
           VSPHERE_TEMPLATE: ubuntu-1804-kube-v1.18.2
           CONTROL_PLANE_MACHINE_COUNT: 3
           WORKER_MACHINE_COUNT: 1
-          KUBERNETES_VERSION: 1.18.2
+          KUBERNETES_VERSION: v1.18.2
           NAMESPACE: default
           TEMPLATE_MEMORY: 32768
           TEMPLATE_DISK: 64
@@ -723,6 +724,8 @@ jobs:
           file: cluster/cluster.yaml
 
   - name: jonquil-cluster
+    serial_groups:
+      - cluster-creation
     on_failure:
       task: delete-cluster
       file: pipelines/tasks/kubectl-cmd/task.yml
