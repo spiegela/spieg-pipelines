@@ -1,0 +1,60 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: pivotalgreenhouse/govc
+    tag: latest
+
+params:
+  DEBUG:
+  VM:
+  GOVC_INSECURE:
+  GOVC_URL:
+  GOVC_USERNAME:
+  GOVC_PASSWORD:
+  GOVC_DATACENTER:
+  GOVC_DATASTORE:
+  GOVC_NETWORK:
+  GOVC_RESOURCE_POOL:
+  IGNORE_ERROR:
+
+inputs:
+  - name: conditions
+    optional: true
+  - name: files
+    optional: true
+
+outputs:
+  - name: vm-exists
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      if [[ $DEBUG == true ]]; then
+        set -x
+        ls -lr files
+      fi
+
+      if [ -f "conditions/skip" ]; then
+        echo "file: control/skip file exists, so skipping this task"
+        exit 0
+      fi
+
+      if [[ $IGNORE_ERROR == true ]]; then
+        set +e
+      else
+        set -e
+      fi
+
+      read -r -a ARGS <<< "$ARGS"
+      VM_LIST=$(govc ls "${VM}" | wc -l | awk '{print $1}')
+      if [[ $VM_LIST = 0 ]]; then
+        echo "VM does not exist"
+        touch vm-exists/skip
+      fi
+
+      exit 0

@@ -1,0 +1,72 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: pivotalgreenhouse/govc
+    tag: latest
+
+params:
+  DEBUG:
+  VM:
+  TIMEOUT: 30
+  GOVC_INSECURE:
+  GOVC_URL:
+  GOVC_USERNAME:
+  GOVC_PASSWORD:
+  GOVC_DATACENTER:
+  GOVC_DATASTORE:
+  GOVC_NETWORK:
+  GOVC_RESOURCE_POOL:
+  IGNORE_ERROR:
+
+inputs:
+  - name: conditions
+    optional: true
+  - name: files
+    optional: true
+
+outputs:
+  - name: output
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      if [[ $DEBUG == true ]]; then
+        set -x
+        ls -lr files
+      fi
+
+      if [ -f "conditions/skip" ]; then
+        echo "file: control/skip file exists, so skipping this task"
+        exit 0
+      fi
+
+      if [[ $IGNORE_ERROR == true ]]; then
+        set +e
+      else
+        set -e
+      fi
+
+      for i in $(seq 1 $TIMEOUT); do
+        INFO=$(govc vm.info -json -r "${VM}")
+        ADDR=$(echo $INFO | jq '.VirtualMachines[].Guest.IpAddress' | sed -e 's|"||g')
+
+        if [[ "${ADDR}" == "" ]]; then
+          echo -n .
+        else
+          echo "VM start complete, and IP address obtained"
+          echo $INFO > output/vm-info.json
+          echo $ADDR > output/ip-address
+
+          exit 0
+        fi
+
+        sleep 2
+      done
+
+      echo "Timed out waitng for vm to obtain an IP address"
+      exit 1

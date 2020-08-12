@@ -1,0 +1,34 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: alpine
+    tag: latest
+
+inputs:
+  - name: clusterctl
+  - name: config
+
+params:
+  KUBECONFIG: config/config
+  VSPHERE_USERNAME:
+  VSPHERE_PASSWORD:
+  INFRASTRUCTURE:
+  VSPHERE_DATACENTER:
+  VSPHERE_DATASTORE:
+  VSPHERE_FOLDER:
+  VSPHERE_NETWORK:
+  VSPHERE_RESOURCE_POOL:
+  VSPHERE_SERVER:
+  VSPHERE_SSH_AUTHORIZED_KEY:
+run:
+  path: /bin/ash
+  args:
+    - -c
+    - |
+      set -e
+      set -x
+      chmod +x clusterctl/clusterctl-linux-amd64
+      clusterctl/clusterctl-linux-amd64 init --infrastructure "${INFRASTRUCTURE}"
