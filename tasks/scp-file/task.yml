@@ -1,0 +1,74 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: kroniak/ssh-client
+    tag: latest
+
+params:
+  DEBUG:
+  HOST:
+  USERNAME:
+  PRIVATE_KEY:
+  SOURCE:
+  DEST:
+
+inputs:
+  - name: conditions
+    optional: true
+  - name: connection
+    optional: true
+  - name: files
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      if [[ $DEBUG == true ]]; then
+        set -x
+        ls -lr files
+      fi
+
+      if [ -f "conditions/skip" ]; then
+        echo "file: control/skip file exists, so skipping this task"
+        exit 0
+      fi
+
+      if [[ $IGNORE_ERROR == true ]]; then
+        set +e
+      else
+        set -e
+      fi
+
+      mkdir -p ~/.ssh
+      chmod 700 ~/.ssh
+      echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+
+      if [ -f "connection/hostname" ]; then
+        HOST=$(cat connection/hostname)
+      fi
+
+      if [ -f "connection/ip-address" ]; then
+        HOST=$(cat connection/ip-address)
+      fi
+
+      if [ -f "connection/username" ]; then
+        USERNAME=$(cat connection/username)
+      fi
+
+      if [ -f "connection/private-key" ]; then
+        cp connection/private-key ~/.ssh/id_rsa
+      fi
+
+      if [[ "${PRIVATE_KEY}" != "" ]]; then
+        echo "${PRIVATE_KEY}" > ~/.ssh/id_rsa
+      fi
+
+      chmod 600 ~/.ssh/id_rsa
+
+      scp $SOURCE "${USERNAME}@${HOST}":${DEST}
+
+      exit 0
