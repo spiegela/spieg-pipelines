@@ -60,22 +60,22 @@ resources:
       versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.18.x.json
       <<: *s3_env
 
-  - name: microk8s-config
+  - name: kind-config
     type: s3
     source:
-      versioned_file: ClusterAPI/microk8s/config
+      versioned_file: ClusterAPI/kind/config
       <<: *s3_env
 
-  - name: microk8s-info
+  - name: kind-ip-address
     type: s3
     source:
-      versioned_file: ClusterAPI/microk8s/microk8s-info.json
+      versioned_file: ClusterAPI/kind/ip-address
       <<: *s3_env
 
-  - name: microk8s-ip-address
+  - name: kind-cluster-yaml
     type: s3
     source:
-      versioned_file: ClusterAPI/microk8s/ip-address
+      versioned_file: ClusterAPI/kind/cluster.yaml
       <<: *s3_env
 
   - name: clusterctl-release
@@ -296,16 +296,16 @@ jobs:
         params:
           file: vm-info/govc-cmd.out
 
-  - name: microk8s-vm
+  - name: kind-vm
     plan:
       - get: pipelines
       - task: check-previous
         file: pipelines/tasks/skip-unless-vm-exists/task.yml
         output_mapping:
-          output: delete-conditions
+          vm-exists: delete-conditions
         params:
           <<: *govc_env
-          VM: /Datacenter/vm/ClusterAPI/microk8s
+          VM: /Datacenter/vm/ClusterAPI/capi-kind
       - task: delete-previous
         file: pipelines/tasks/govc-cmd/task.yml
         input_mapping:
@@ -313,56 +313,192 @@ jobs:
         params:
           <<: *govc_env
           COMMAND: vm.destroy
-          ARGS: microk8s
+          ARGS: capi-kind
       - task: clone-from-template
         file: pipelines/tasks/govc-cmd/task.yml
         params:
           <<: *govc_env
           COMMAND: vm.clone
-          ARGS: -on=true -vm ClusterAPI/microk8s-template -folder ClusterAPI microk8s
+          ARGS: -on=true -link=true -waitip=true -vm ubuntu-20.04-template -folder ClusterAPI capi-kind
       - task: wait-for-address
         file: pipelines/tasks/wait-for-vm-address/task.yml
         output_mapping:
           output: vm-info
         params:
           <<: *govc_env
-          VM: /Datacenter/vm/ClusterAPI/microk8s
-      - put: microk8s-info
-        params:
-          file: vm-info/vm-info.json
-      - put: microk8s-ip-address
-        params:
-          file: vm-info/ip-address
-
-  - name: microk8s-config
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: microk8s-ip-address
-            passed:
-              - microk8s-vm
-      - task: get-microk8s-config
+          VM: /Datacenter/vm/ClusterAPI/capi-kind
+      - task: install-docker-repo-deps
         file: pipelines/tasks/ssh-exec/task.yml
         input_mapping:
-          connection: microk8s-ip-address
-        output_mapping:
-          output: microk8s-config
+          connection: vm-info
         params:
           PRIVATE_KEY: ((private_key))
           USERNAME: spiegela
-          COMMAND: /snap/bin/microk8s
-          ARGS: config
-      - put: microk8s-config
+          COMMAND: sudo
+          ARGS: apt install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
+      - task: get-gpg-key
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: vm-info
         params:
-          file: microk8s-config/ssh-exec.out
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: curl
+          ARGS: -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+      - task: create-docker-repo
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: vm-info
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: sudo
+          ARGS: add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+      - task: update-apt-cache
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: vm-info
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: sudo
+          ARGS: apt update
+      - task: install-docker
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: vm-info
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: sudo
+          ARGS: apt install -y docker-ce docker-ce-cli containerd.io
+      - task: add-user-to-docker-group
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: vm-info
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: sudo
+          ARGS: adduser spiegela docker
+      - put: kind-ip-address
+        params:
+          file: vm-info/ip-address
 
-  - name: microk8s-clusterctl-init
+  - name: kind-config
+    plan:
+      - in_parallel:
+        - get: pipelines
+        - get: kind-ip-address
+          trigger: true
+          passed:
+            - kind-vm
+        - get: kind-cluster-yaml
+          trigger: true
+      - in_parallel:
+        - task: inject-ip-to-kind-cluster-yaml
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source:
+                repository: alpine
+                tag: latest
+            inputs:
+              - name: kind-cluster-yaml
+              - name: kind-ip-address
+            outputs:
+              - name: final-cluster-yaml
+            run:
+              path: /bin/ash
+              args:
+                - -c
+                - |
+                  if [[ $DEBUG == "true" ]]; then
+                    set -x
+                  fi
+                  REAL_IP=$(cat kind-ip-address/ip-address)
+                  sed -e "s|KIND_IP_ADDRESS|$REAL_IP|" kind-cluster-yaml/cluster.yaml > final-cluster-yaml/cluster.yaml
+        - task: download-kind
+          file: pipelines/tasks/ssh-exec/task.yml
+          input_mapping:
+            connection: kind-ip-address
+          params:
+            PRIVATE_KEY: ((private_key))
+            USERNAME: spiegela
+            COMMAND: curl
+            ARGS: -Lo ./kind https://kind.sigs.k8s.io/dl/v0.8.1/kind-linux-amd64
+      - in_parallel:
+        - task: copy-cluster-yaml-to-kind
+          file: pipelines/tasks/scp-file/task.yml
+          input_mapping:
+            connection: kind-ip-address
+            files: final-cluster-yaml
+          params:
+            PRIVATE_KEY: ((private_key))
+            USERNAME: spiegela
+            SOURCE: files/cluster.yaml
+            DEST: ~/cluster.yaml
+        - task: chmod-kind
+          file: pipelines/tasks/ssh-exec/task.yml
+          input_mapping:
+            connection: kind-ip-address
+          params:
+            PRIVATE_KEY: ((private_key))
+            USERNAME: spiegela
+            COMMAND: chmod
+            ARGS: +x ./kind
+      - task: install-kind
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: kind-ip-address
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: sudo
+          ARGS: mv ./kind /usr/local/bin
+      - task: delete-kind-cluster-if-exists
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: kind-ip-address
+        params:
+          IGNORE_ERROR: true
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: /usr/local/bin/kind
+          ARGS: delete cluster
+      - task: create-kind-cluster
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: kind-ip-address
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: /usr/local/bin/kind
+          ARGS: create cluster --config=cluster.yaml
+      - task: get-kind-config
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: kind-ip-address
+        output_mapping:
+          output: kind-config
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: /usr/local/bin/kind
+          ARGS: get kubeconfig
+      - put: kind-config
+        params:
+          file: kind-config/ssh-exec.out
+
+  - name: kind-clusterctl-init
     plan:
       - in_parallel:
           - get: pipelines
-          - get: microk8s-config
+          - get: kind-config
+            trigger: true
             passed:
-              - microk8s-config
+              - kind-config
           - get: clusterctl-release
             trigger: true
             params:
@@ -371,10 +507,10 @@ jobs:
         file: pipelines/tasks/clusterctl-init/task.yml
         input_mapping:
           clusterctl: clusterctl-release
-          config: microk8s-config
+          config: kind-config
         params:
           <<: *vsphere_env
-          INFRASTRUCTURE: vsphere
+          INFRASTRUCTURE: vsphere:v0.7.0
 
   - name: gamboge-cluster-yaml
     plan:
@@ -385,9 +521,10 @@ jobs:
             trigger: true
             passed:
               - kube-templates-1.17.x
-          - get: microk8s-config
+          - get: kind-config
+            trigger: true
             passed:
-              - microk8s-clusterctl-init
+              - kind-clusterctl-init
           - get: clusterctl-release
             trigger: true
             params:
@@ -396,7 +533,7 @@ jobs:
         file: pipelines/tasks/vsphere-cluster-config/task.yml
         input_mapping:
           clusterctl: clusterctl-release
-          config: microk8s-config
+          config: kind-config
         params:
           <<: *vsphere_env
           CLUSTER_NAME: gamboge
@@ -422,35 +559,37 @@ jobs:
       task: delete-cluster
       file: pipelines/tasks/kubectl-cmd/task.yml
       input_mapping:
-        config: microk8s-config
+        config: kind-config
       params:
         COMMAND: delete
         ARGS: cluster gamboge
     plan:
       - in_parallel:
           - get: pipelines
-          - get: microk8s-config
+          - get: clusterctl-release
+          - get: kind-config
             passed:
-              - microk8s-clusterctl-init
+              - kind-clusterctl-init
           - get: gamboge-cluster-yaml
             trigger: true
             passed:
               - gamboge-cluster-yaml
       - task: create-cluster
-        file: pipelines/tasks/kubectl-apply-template/task.yml
+        file: pipelines/tasks/kubectl-apply-cluster-template/task.yml
         input_mapping:
-          config: microk8s-config
+          config: kind-config
           templates: gamboge-cluster-yaml
+          clusterctl: clusterctl-release
       - task: wait-until-available
         file: pipelines/tasks/wait-until-cluster-available/task.yml
         input_mapping:
-          config: microk8s-config
+          config: kind-config
         params:
           NAME: gamboge
       - task: fetch-secret
         file: pipelines/tasks/kubectl-cmd/task.yml
         input_mapping:
-          config: microk8s-config
+          config: kind-config
         output_mapping:
           output: encoded-secret
         params:
@@ -486,9 +625,10 @@ jobs:
             trigger: true
             passed:
               - kube-templates-1.18.x
-          - get: microk8s-config
+          - get: kind-config
+            trigger: true
             passed:
-              - microk8s-clusterctl-init
+              - kind-clusterctl-init
           - get: clusterctl-release
             trigger: true
             params:
@@ -497,7 +637,7 @@ jobs:
         file: pipelines/tasks/vsphere-cluster-config/task.yml
         input_mapping:
           clusterctl: clusterctl-release
-          config: microk8s-config
+          config: kind-config
         params:
           <<: *vsphere_env
           CLUSTER_NAME: jonquil
@@ -523,35 +663,37 @@ jobs:
       task: delete-cluster
       file: pipelines/tasks/kubectl-cmd/task.yml
       input_mapping:
-        config: microk8s-config
+        config: kind-config
       params:
         COMMAND: delete
         ARGS: cluster jonquil
     plan:
       - in_parallel:
           - get: pipelines
-          - get: microk8s-config
+          - get: clusterctl-release
+          - get: kind-config
             passed:
-              - microk8s-clusterctl-init
+              - kind-clusterctl-init
           - get: jonquil-cluster-yaml
             trigger: true
             passed:
               - jonquil-cluster-yaml
       - task: create-cluster
-        file: pipelines/tasks/kubectl-apply-template/task.yml
+        file: pipelines/tasks/kubectl-apply-cluster-template/task.yml
         input_mapping:
-          config: microk8s-config
+          config: kind-config
           templates: jonquil-cluster-yaml
+          clusterctl: clusterctl-release
       - task: wait-until-available
         file: pipelines/tasks/wait-until-cluster-available/task.yml
         input_mapping:
-          config: microk8s-config
+          config: kind-config
         params:
           NAME: jonquil
       - task: fetch-secret
         file: pipelines/tasks/kubectl-cmd/task.yml
         input_mapping:
-          config: microk8s-config
+          config: kind-config
         output_mapping:
           output: encoded-secret
         params:
