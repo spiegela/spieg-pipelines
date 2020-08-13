@@ -18,6 +18,7 @@ params:
 inputs:
   - name: config
   - name: templates
+    optional: true
   - name: conditions
     optional: true
 
@@ -48,4 +49,4 @@ run:
         FLAGS=("-n" "$NAMESPACE")
       fi
 
-      kubectl apply "${FLAGS[@]}" -f templates/${TEMPLATE}
+      kubectl apply "${FLAGS[@]}" -f ${TEMPLATE}
