@@ -19,6 +19,8 @@ params:
 
 inputs:
   - name: config
+  - name: conditions
+    optional: true
 
 run:
   path: /bin/bash
