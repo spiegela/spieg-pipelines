@@ -555,14 +555,6 @@ jobs:
   - name: gamboge-cluster
     serial_groups:
       - cluster-creation
-    on_failure:
-      task: delete-cluster
-      file: pipelines/tasks/kubectl-cmd/task.yml
-      input_mapping:
-        config: kind-config
-      params:
-        COMMAND: delete
-        ARGS: cluster gamboge
     plan:
       - in_parallel:
           - get: pipelines
@@ -666,14 +658,6 @@ jobs:
   - name: jonquil-cluster
     serial_groups:
       - cluster-creation
-    on_failure:
-      task: delete-cluster
-      file: pipelines/tasks/kubectl-cmd/task.yml
-      input_mapping:
-        config: kind-config
-      params:
-        COMMAND: delete
-        ARGS: cluster jonquil
     plan:
       - in_parallel:
           - get: pipelines
