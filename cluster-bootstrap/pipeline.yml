@@ -1,0 +1,122 @@
+---
+s3_env: &s3_env
+  bucket: concourse
+  endpoint: ((s3.endpoint))
+  access_key_id: ((s3.access_key))
+  secret_access_key: ((s3.secret_key))
+
+resources:
+  - name: pipelines
+    type: git
+    source:
+      uri: git@github.com:spiegela/spieg-pipelines.git
+      branch: master
+      private_key: ((private_key))
+
+  - name: config
+    type: s3
+    source:
+      versioned_file: ClusterAPI/((cluster_name))/config
+      <<: *s3_env
+
+  - name: node-list
+    type: s3
+    source:
+      versioned_file: ClusterAPI/jonquil/node-list
+      <<: *s3_env
+
+  - name: metallb-configmap
+    type: s3
+    source:
+      versioned_file: ClusterAPI/((cluster_name))/metallb-configmap.yaml
+      <<: *s3_env
+
+jobs:
+
+  - name: calico
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: config
+            trigger: true
+      - task: calico
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        params:
+          TEMPLATE: https://docs.projectcalico.org/manifests/calico.yaml
+      - task: wait-until-nodes-ready
+        file: pipelines/tasks/wait-until-ready/task.yml
+        params:
+          KIND: node
+          DESIRED: '{.items[*].status.conditions[*].status}'
+          READY: '{.items[*].status.conditions[?(@.status=="True")].status}'
+          SUM: wc -c
+      - task: list-nodes
+        file: pipelines/tasks/kubectl-cmd/task.yml
+        output_mapping:
+          output: node-list
+        params:
+          COMMAND: get
+          ARGS: node -o wide
+      - put: node-list
+        params:
+          file: node-list/kubectl-cmd.out
+
+  - name: metallb
+    plan:
+      - in_parallel:
+        - get: node-list
+          trigger: true
+          passed:
+            - calico
+        - get: pipelines
+        - get: config
+        - get: metallb-configmap
+          trigger: true
+        - task: generate-memberlist-key
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source:
+                repository: frapsoft/openssl
+                tag: latest
+            outputs:
+              - name: memberlist-key
+            run:
+              path: /bin/ash
+              args:
+                - -c
+                - |
+                  if [[ $DEBUG == "true" ]]; then
+                    set -x
+                  fi
+                  openssl rand -base64 128 > memberlist-key/key
+      - task: create-namespace
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        params:
+          TEMPLATE: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
+      - in_parallel:
+        - task: apply-configmap
+          file: pipelines/tasks/kubectl-apply-template/task.yml
+          input_mapping:
+           templates: metallb-configmap
+          params:
+            TEMPLATE: templates/metallb-configmap.yaml
+        - task: apply-metallb-system
+          file: pipelines/tasks/kubectl-apply-template/task.yml
+          params:
+            TEMPLATE: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
+        - task: memberlist-secret-exists
+          file: pipelines/tasks/skip-if-k8s-resource-exists/task.yml
+          params:
+            ARGS: -n metallb-system secret memberlist
+          output_mapping:
+            output: memberlist-exists
+      - task: create-memberlist-secret
+        file: pipelines/tasks/kubectl-cmd/task.yml
+        input_mapping:
+          conditions: memberlist-exists
+          files: memberlist-key
+        params:
+          COMMAND: create
+          ARGS: secret generic -n metallb-system memberlist --from-file=secretkey=files/key

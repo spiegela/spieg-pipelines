@@ -98,18 +98,6 @@ resources:
       versioned_file: ClusterAPI/jonquil/cluster.yaml
       <<: *s3_env
 
-  - name: gamboge-node-list
-    type: s3
-    source:
-      versioned_file: ClusterAPI/gamboge/node-list
-      <<: *s3_env
-
-  - name: jonquil-node-list
-    type: s3
-    source:
-      versioned_file: ClusterAPI/jonquil/node-list
-      <<: *s3_env
-
   - name: gamboge-config
     type: s3
     source:
@@ -624,6 +612,13 @@ jobs:
             args:
               - -c
               - base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
+      - set_pipeline: gamboge-bootstrap
+        file: pipelines/cluster-bootstrap/pipeline.yml
+        vars:
+          cluster_name: gamboge
+          s3: ((s3))
+          git_token: ((git_token))
+          private_key: ((private_key))
       - put: gamboge-config
         params:
           file: kubeconfig/config
@@ -728,76 +723,13 @@ jobs:
             args:
               - -c
               - base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
+      - set_pipeline: jonquil-bootstrap
+        file: pipelines/cluster-bootstrap/pipeline.yml
+        vars:
+          cluster_name: jonquil
+          s3: ((s3))
+          git_token: ((git_token))
+          private_key: ((private_key))
       - put: jonquil-config
         params:
           file: kubeconfig/config
-
-  - name: gamboge-calico
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: gamboge-config
-            passed:
-              - gamboge-cluster
-      - task: calico
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        input_mapping:
-          config: gamboge-config
-        params:
-          TEMPLATE: https://docs.projectcalico.org/manifests/calico.yaml
-      - task: wait-until-nodes-ready
-        file: pipelines/tasks/wait-until-ready/task.yml
-        input_mapping:
-          config: gamboge-config
-        params:
-          KIND: node
-          DESIRED: '{.items[*].status.conditions[*].status}'
-          READY: '{.items[*].status.conditions[?(@.status=="True")].status}'
-          SUM: wc -c
-      - task: list-nodes
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        input_mapping:
-          config: gamboge-config
-        output_mapping:
-          output: node-list
-        params:
-          COMMAND: get
-          ARGS: node -o wide
-      - put: gamboge-node-list
-        params:
-          file: node-list/kubectl-cmd.out
-
-  - name: jonquil-calico
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: jonquil-config
-            passed:
-              - jonquil-cluster
-      - task: calico
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        input_mapping:
-          config: jonquil-config
-        params:
-          TEMPLATE: https://docs.projectcalico.org/manifests/calico.yaml
-      - task: wait-until-nodes-ready
-        file: pipelines/tasks/wait-until-ready/task.yml
-        input_mapping:
-          config: jonquil-config
-        params:
-          KIND: node
-          DESIRED: '{.items[*].status.conditions[*].status}'
-          READY: '{.items[*].status.conditions[?(@.status=="True")].status}'
-          SUM: wc -c
-      - task: list-nodes
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        input_mapping:
-          config: jonquil-config
-        output_mapping:
-          output: node-list
-        params:
-          COMMAND: get
-          ARGS: node -o wide
-      - put: jonquil-node-list
-        params:
-          file: node-list/kubectl-cmd.out

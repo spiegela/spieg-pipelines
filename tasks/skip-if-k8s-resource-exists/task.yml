@@ -10,15 +10,12 @@ image_resource:
 params:
   DEBUG:
   KUBECONFIG: config/config
-  IGNORE_ERROR:
   TIMEOUT: 300
-  COMMAND:
   ARGS:
+  NEGATE:
 
 inputs:
   - name: config
-  - name: files
-    optional: true
   - name: conditions
     optional: true
 
@@ -39,13 +36,16 @@ run:
         exit 0
       fi
 
-      if [[ $IGNORE_ERROR == true ]]; then
-        set +e
-      else
-        set -e
-      fi
-
       ARG_ARRAY=(${ARGS})
-      kubectl ${COMMAND} "${ARG_ARRAY[@]}" > output/kubectl-cmd.out
+
+      set +e
+      LIST=$(kubectl get --no-headers "${ARG_ARRAY[@]}")
+      set -e
+
+      if [[ $NEGATE == true && "${LIST}" == "" ]]; then
+        touch output/skip
+      elif [[  "${LIST}" != "" ]]; then
+        touch output/skip
+      fi
 
       exit 0
