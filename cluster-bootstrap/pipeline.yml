@@ -5,6 +5,20 @@ s3_env: &s3_env
   access_key_id: ((s3.access_key))
   secret_access_key: ((s3.secret_key))
 
+helm_env: &helm_env
+  cluster_url: ((cluster_url))
+  cluster_ca: ((cluster_ca))
+  admin_key: ((admin_key))
+  admin_cert: ((admin_cert))
+  tracing_enabled: true
+
+resource_types:
+  - name: helm-release
+    type: docker-image
+    source:
+      repository: spiegela/concourse-helm3
+      tag: latest
+
 resources:
   - name: pipelines
     type: git
@@ -30,6 +44,59 @@ resources:
     source:
       versioned_file: ClusterAPI/((cluster_name))/metallb-configmap.yaml
       <<: *s3_env
+
+  - name: powerflex-secret
+    type: s3
+    source:
+      versioned_file: ClusterAPI/((cluster_name))/powerflex-secret.yaml
+      <<: *s3_env
+
+  - name: registry-secret
+    type: s3
+    source:
+      versioned_file: ClusterAPI/((cluster_name))/registry-secret.yaml
+      <<: *s3_env
+
+  - name: powerflex-sdc-init-values
+    type: s3
+    source:
+      versioned_file: ClusterAPI/((cluster_name))/powerflex-sdc-init-values.yaml
+      <<: *s3_env
+
+  - name: powerflex-sdc-init-repo
+    type: git
+    source:
+      uri: git@github.com:spiegela/powerflex-sdc-init.git
+      branch: master
+      private_key: ((private_key))
+
+  - name: csi-powerflex-repo
+    type: git
+    source:
+      uri: git@github.com:spiegela/csi-powerflex.git
+      branch: master
+      private_key: ((private_key))
+
+  - name: csi-powerflex-values
+    type: s3
+    source:
+      versioned_file: ClusterAPI/((cluster_name))/csi-powerflex-values.yaml
+      <<: *s3_env
+
+  - name: powerflex-sdc-init-release
+    type: helm-release
+    source:
+      release: sdc-init
+      namespace: powerflex-system
+      create_namespace: true
+      <<: *helm_env
+
+  - name: csi-powerflex-release
+    type: helm-release
+    source:
+      release: csi
+      namespace: powerflex-system
+      <<: *helm_env
 
 jobs:
 
@@ -64,54 +131,54 @@ jobs:
   - name: metallb
     plan:
       - in_parallel:
-        - get: node-list
-          trigger: true
-          passed:
-            - calico
-        - get: pipelines
-        - get: config
-        - get: metallb-configmap
-          trigger: true
-        - task: generate-memberlist-key
-          config:
-            platform: linux
-            image_resource:
-              type: docker-image
-              source:
-                repository: frapsoft/openssl
-                tag: latest
-            outputs:
-              - name: memberlist-key
-            run:
-              path: /bin/ash
-              args:
-                - -c
-                - |
-                  if [[ $DEBUG == "true" ]]; then
-                    set -x
-                  fi
-                  openssl rand -base64 128 > memberlist-key/key
+          - get: node-list
+            trigger: true
+            passed:
+              - calico
+          - get: pipelines
+          - get: config
+          - get: metallb-configmap
+            trigger: true
+          - task: generate-memberlist-key
+            config:
+              platform: linux
+              image_resource:
+                type: docker-image
+                source:
+                  repository: frapsoft/openssl
+                  tag: latest
+              outputs:
+                - name: memberlist-key
+              run:
+                path: /bin/ash
+                args:
+                  - -c
+                  - |
+                    if [[ $DEBUG == "true" ]]; then
+                      set -x
+                    fi
+                    openssl rand -base64 128 > memberlist-key/key
       - task: create-namespace
         file: pipelines/tasks/kubectl-apply-template/task.yml
         params:
           TEMPLATE: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
       - in_parallel:
-        - task: apply-configmap
-          file: pipelines/tasks/kubectl-apply-template/task.yml
-          input_mapping:
-           templates: metallb-configmap
-          params:
-            TEMPLATE: templates/metallb-configmap.yaml
-        - task: apply-metallb-system
-          file: pipelines/tasks/kubectl-apply-template/task.yml
-          params:
-            TEMPLATE: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
-        - task: memberlist-secret-exists
-          file: pipelines/tasks/skip-if-k8s-resource-exists/task.yml
-          params:
-            ARGS: -n metallb-system secret memberlist
-          output_mapping:
-            output: memberlist-exists
+          - task: apply-configmap
+            file: pipelines/tasks/kubectl-apply-template/task.yml
+            input_mapping:
+              templates: metallb-configmap
+            params:
+              TEMPLATE: templates/metallb-configmap.yaml
+          - task: apply-metallb-system
+            file: pipelines/tasks/kubectl-apply-template/task.yml
+            params:
+              TEMPLATE: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
+          - task: memberlist-secret-exists
+            file: pipelines/tasks/skip-if-k8s-resource-exists/task.yml
+            params:
+              ARGS: -n metallb-system secret memberlist
+            output_mapping:
+              output: memberlist-exists
       - task: create-memberlist-secret
         file: pipelines/tasks/kubectl-cmd/task.yml
         input_mapping:
@@ -120,3 +187,52 @@ jobs:
         params:
           COMMAND: create
           ARGS: secret generic -n metallb-system memberlist --from-file=secretkey=files/key
+
+  - name: powerflex-sdc-init
+    plan:
+      - in_parallel:
+          - get: node-list
+            trigger: true
+            passed:
+              - calico
+          - get: pipelines
+          - get: powerflex-secret
+            trigger: true
+          - get: registry-secret
+            trigger: true
+          - get: powerflex-sdc-init-repo
+            trigger: true
+          - get: powerflex-sdc-init-values
+            trigger: true
+          - get: config
+            trigger: true
+      - task: apply-registry-secret
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        input_mapping:
+          templates: registry-secret
+        params:
+          TEMPLATE: templates/registry-secret.yaml
+      - put: powerflex-sdc-init-release
+        params:
+          chart: powerflex-sdc-init-repo/helm/powerflex-sdc-init
+          values: powerflex-sdc-init-values/powerflex-sdc-init-values.yaml
+          check_is_ready: true
+          reuse_values: true
+
+  - name: csi-powerflex
+    plan:
+      - in_parallel:
+          - get: powerflex-sdc-init-release
+            passed:
+              - powerflex-sdc-init
+          - get: pipelines
+          - get: csi-powerflex-repo
+            trigger: true
+          - get: csi-powerflex-values
+            trigger: true
+      - put: csi-powerflex-release
+        params:
+          chart: csi-powerflex-repo/helm/csi-powerflex
+          values: csi-powerflex-values/csi-powerflex-values.yaml
+          check_is_ready: true
+          reuse_values: true

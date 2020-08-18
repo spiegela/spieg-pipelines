@@ -110,6 +110,18 @@ resources:
       versioned_file: ClusterAPI/jonquil/config
       <<: *s3_env
 
+  - name: base-config
+    type: s3
+    source:
+      versioned_file: ClusterAPI/base-kubeconfig.yaml
+      <<: *s3_env
+
+  - name: merged-config
+    type: s3
+    source:
+      versioned_file: ClusterAPI/all/config
+      <<: *s3_env
+
 jobs:
 
   - name: kube-templates-1.17.x
@@ -566,7 +578,7 @@ jobs:
             trigger: true
             passed:
               - gamboge-cluster-yaml
-      - task: create-cluster
+      - task: apply-cluster
         file: pipelines/tasks/kubectl-apply-cluster-template/task.yml
         input_mapping:
           config: kind-config
@@ -588,29 +600,26 @@ jobs:
           COMMAND: get
           ARGS: secret gamboge-kubeconfig -o jsonpath='{.data.value}'
       - task: decode-secret
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: alpine
-              tag: latest
-          inputs:
-            - name: encoded-secret
-          outputs:
-            - name: kubeconfig
-          run:
-            path: /bin/sh
-            args:
-              - -c
-              - base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
+        file: pipelines/tasks/base64/task.yml
+        output_mapping:
+          out: kubeconfig
+        input_mapping:
+          in: encoded-secret
+        params:
+          IN: kubectl-cmd.out
+          OUT: config
+      - task: create-kubeconfig-vars
+        file: pipelines/tasks/kubeconfig-to-vars/task.yml
       - set_pipeline: gamboge-bootstrap
         file: pipelines/cluster-bootstrap/pipeline.yml
+        var_files:
+          - vars/kube-vars.yml
         vars:
           cluster_name: gamboge
           s3: ((s3))
           git_token: ((git_token))
           private_key: ((private_key))
+          docker_credentials: ((docker_credentials))
       - put: gamboge-config
         params:
           file: kubeconfig/config
@@ -691,29 +700,69 @@ jobs:
           COMMAND: get
           ARGS: secret jonquil-kubeconfig -o jsonpath='{.data.value}'
       - task: decode-secret
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: alpine
-              tag: latest
-          inputs:
-            - name: encoded-secret
-          outputs:
-            - name: kubeconfig
-          run:
-            path: /bin/sh
-            args:
-              - -c
-              - base64 -d encoded-secret/kubectl-cmd.out > kubeconfig/config
+        file: pipelines/tasks/base64/task.yml
+        output_mapping:
+          out: kubeconfig
+        input_mapping:
+          in: encoded-secret
+        params:
+          IN: kubectl-cmd.out
+          OUT: config
+      - task: create-kubeconfig-vars
+        file: pipelines/tasks/kubeconfig-to-vars/task.yml
       - set_pipeline: jonquil-bootstrap
         file: pipelines/cluster-bootstrap/pipeline.yml
+        var_files:
+          - vars/kube-vars.yml
         vars:
           cluster_name: jonquil
           s3: ((s3))
           git_token: ((git_token))
           private_key: ((private_key))
+          docker_credentials: ((docker_credentials))
       - put: jonquil-config
         params:
           file: kubeconfig/config
+
+  - name: merge-configs
+    plan:
+      - in_parallel:
+          - get: base-config
+            trigger: true
+          - get: kind-config
+            trigger: true
+            passed:
+              - kind-clusterctl-init
+          - get: jonquil-config
+            trigger: true
+            passed:
+              - jonquil-cluster
+          - get: gamboge-config
+            trigger: true
+            passed:
+              - gamboge-cluster
+      - task: merge-configs
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: bitnami/kubectl
+              tag: 1.18.0
+          inputs:
+            - name: base-config
+            - name: kind-config
+            - name: jonquil-config
+            - name: gamboge-config
+          outputs:
+            - name: merged
+          run:
+            path: /bin/bash
+            args:
+              - -c
+              - |
+                KUBECONFIG=base-config/base-kubeconfig.yaml:kind-config/config:jonquil-config/config:gamboge-config/config kubectl config view --merge --flatten > \
+                  merged/config
+      - put: merged-config
+        params:
+          file: merged/config
