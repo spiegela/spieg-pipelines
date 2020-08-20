@@ -158,6 +158,7 @@ jobs:
     plan:
       - in_parallel:
           - get: node-list
+            trigger: true
             passed:
               - remove-master-taints
           - get: pipelines
@@ -217,6 +218,7 @@ jobs:
     plan:
       - in_parallel:
           - get: node-list
+            trigger: true
             passed:
               - remove-master-taints
           - get: pipelines
@@ -247,6 +249,7 @@ jobs:
     plan:
       - in_parallel:
           - get: powerflex-sdc-init-release
+            trigger: true
             passed:
               - powerflex-sdc-init
           - get: pipelines

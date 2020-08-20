@@ -72,16 +72,38 @@ run:
       yq merge -d2 -i -x -a cluster/cluster.yaml mt_template_patch.yaml
 
       # Enable cluster feature gates
-      cat >kubeadm_gates_patch.yaml <<EOL
+      cat >controlplane_gates_patch.yaml <<EOL
       spec:
         kubeadmConfigSpec:
           clusterConfiguration:
-            featureGates:
-              VolumeSnapshotDataSource: true
-              EvenPodsSpread: true
+            apiServer:
+              extraArgs:
+                feature-gates: VolumeSnapshotDataSource=true,EvenPodsSpread=true
+            controllerManager:
+              extraArgs:
+                feature-gates: VolumeSnapshotDataSource=true,EvenPodsSpread=true
+            scheduler:
+              extraArgs:
+                feature-gates: VolumeSnapshotDataSource=true,EvenPodsSpread=true
+          initConfiguration:
+            nodeRegistration:
+              kubeletExtraArgs:
+                feature-gates: VolumeSnapshotDataSource=true,EvenPodsSpread=true
           useExperimentalRetryJoin: true
       EOL
-      yq merge -d3 -i -x -a cluster/cluster.yaml kubeadm_gates_patch.yaml
+      yq merge -d3 -i -x -a cluster/cluster.yaml controlplane_gates_patch.yaml
+
+      # Enable cluster feature gates
+      cat >kubeadm_gates_patch.yaml <<EOL
+      spec:
+        template:
+          spec:
+            joinConfiguration:
+              nodeRegistration:
+                kubeletExtraArgs:
+                  feature-gates: VolumeSnapshotDataSource=true,EvenPodsSpread=true
+      EOL
+      yq merge -d4 -i -x -a cluster/cluster.yaml kubeadm_gates_patch.yaml
 
       echo "Printing cluster configuration YAML"
       echo
