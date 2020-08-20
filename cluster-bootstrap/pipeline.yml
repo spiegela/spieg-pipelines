@@ -128,13 +128,38 @@ jobs:
         params:
           file: node-list/kubectl-cmd.out
 
-  - name: metallb
+  - name: remove-master-taints
     plan:
       - in_parallel:
           - get: node-list
             trigger: true
             passed:
               - calico
+          - get: pipelines
+          - get: config
+      - try:
+          task: remove-master-taints
+          file: pipelines/tasks/kubectl-cmd/task.yml
+          params:
+            COMMAND: taint
+            ARGS: nodes --all node-role.kubernetes.io/master:NoSchedule-
+      - task: list-nodes
+        file: pipelines/tasks/kubectl-cmd/task.yml
+        output_mapping:
+          output: node-list
+        params:
+          COMMAND: get
+          ARGS: node -o wide
+      - put: node-list
+        params:
+          file: node-list/kubectl-cmd.out
+
+  - name: metallb
+    plan:
+      - in_parallel:
+          - get: node-list
+            passed:
+              - remove-master-taints
           - get: pipelines
           - get: config
           - get: metallb-configmap
@@ -192,9 +217,8 @@ jobs:
     plan:
       - in_parallel:
           - get: node-list
-            trigger: true
             passed:
-              - calico
+              - remove-master-taints
           - get: pipelines
           - get: powerflex-secret
             trigger: true
