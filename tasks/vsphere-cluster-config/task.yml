@@ -71,6 +71,18 @@ run:
       EOL
       yq merge -d2 -i -x -a cluster/cluster.yaml mt_template_patch.yaml
 
+      # Enable cluster feature gates
+      cat >kubeadm_gates_patch.yaml <<EOL
+      spec:
+        kubeadmConfigSpec:
+          clusterConfiguration:
+            featureGates:
+              VolumeSnapshotDataSource: true
+              EvenPodsSpread: true
+          useExperimentalRetryJoin: true
+      EOL
+      yq merge -d3 -i -x -a cluster/cluster.yaml kubeadm_gates_patch.yaml
+
       echo "Printing cluster configuration YAML"
       echo
       cat cluster/cluster.yaml
