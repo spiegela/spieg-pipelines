@@ -237,11 +237,13 @@ jobs:
         input_mapping:
           templates: registry-secret
         params:
+          NAMESPACE: powerflex-system
           TEMPLATE: templates/registry-secret.yaml
       - put: powerflex-sdc-init-release
         params:
           chart: powerflex-sdc-init-repo/helm/powerflex-sdc-init
           values: powerflex-sdc-init-values/powerflex-sdc-init-values.yaml
+          create_namespace: true
           check_is_ready: true
           reuse_values: true
 
