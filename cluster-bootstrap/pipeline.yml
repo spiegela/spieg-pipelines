@@ -259,6 +259,10 @@ jobs:
             trigger: true
           - get: csi-powerflex-values
             trigger: true
+      - task: apply-snapshot-crds
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        params:
+          TEMPLATE: https://github.com/kubernetes-csi/external-snapshotter/tree/master/client/config/crd
       - put: csi-powerflex-release
         params:
           chart: csi-powerflex-repo/helm/csi-powerflex
