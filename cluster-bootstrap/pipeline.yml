@@ -315,25 +315,25 @@ jobs:
             trigger: true
           - get: csi-powerflex-values
             trigger: true
-      - in_parallel:
+      # - in_parallel:
         - task: apply-powerflex-csi-secret
           file: pipelines/tasks/kubectl-apply-template/task.yml
           input_mapping:
             templates: powerflex-secret
           params:
             TEMPLATE: templates/powerflex-secret.yaml
-        - task: apply-csi-snapshotclass-crd
-          file: pipelines/tasks/kubectl-apply-template/task.yml
-          params:
-            TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
-        - task: apply-csi-snapshotcontent-crd
-          file: pipelines/tasks/kubectl-apply-template/task.yml
-          params:
-            TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
-        - task: apply-csi-snapshot-crd
-          file: pipelines/tasks/kubectl-apply-template/task.yml
-          params:
-            TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+        # - task: apply-csi-snapshotclass-crd
+        #   file: pipelines/tasks/kubectl-apply-template/task.yml
+        #   params:
+        #     TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+        # - task: apply-csi-snapshotcontent-crd
+        #   file: pipelines/tasks/kubectl-apply-template/task.yml
+        #   params:
+        #     TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+        # - task: apply-csi-snapshot-crd
+        #   file: pipelines/tasks/kubectl-apply-template/task.yml
+        #   params:
+        #     TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
       - put: csi-powerflex-release
         params:
           chart: csi-powerflex-repo/helm/csi-powerflex
