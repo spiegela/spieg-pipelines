@@ -10,7 +10,6 @@ helm_env: &helm_env
   cluster_ca: ((cluster_ca))
   admin_key: ((admin_key))
   admin_cert: ((admin_cert))
-  tracing_enabled: true
 
 resource_types:
   - name: helm-release
@@ -37,6 +36,12 @@ resources:
     type: s3
     source:
       versioned_file: ClusterAPI/jonquil/node-list
+      <<: *s3_env
+
+  - name: metallb-pod-list
+    type: s3
+    source:
+      versioned_file: ClusterAPI/jonquil/metallb-pod-list
       <<: *s3_env
 
   - name: metallb-configmap
@@ -88,7 +93,6 @@ resources:
     source:
       release: sdc-init
       namespace: powerflex-system
-      create_namespace: true
       <<: *helm_env
 
   - name: csi-powerflex-release
@@ -97,6 +101,35 @@ resources:
       release: csi
       namespace: powerflex-system
       <<: *helm_env
+
+  - name: traefik-values
+    type: s3
+    source:
+      versioned_file: ClusterAPI/((cluster_name))/traefik-values.yaml
+      <<: *s3_env
+
+  - name: traefik-release
+    type: helm-release
+    source:
+      release: traefik
+      namespace: traefik-system
+      <<: *helm_env
+
+  - name: cert-manager-release
+    type: helm-release
+    source:
+      release: cert-manager
+      namespace: cert-manager-system
+      repos:
+        - name: jetstack
+          url: https://charts.jetstack.io
+      <<: *helm_env
+
+  - name: letsencrypt-issuers
+    type: s3
+    source:
+      versioned_file: ClusterAPI/((cluster_name))/letsencrypt-issuers.yaml
+      <<: *s3_env
 
 jobs:
 
@@ -153,6 +186,19 @@ jobs:
       - put: node-list
         params:
           file: node-list/kubectl-cmd.out
+
+  - name: metrics-server
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: node-list
+            passed:
+              - remove-master-taints
+          - get: config
+      - task: apply-metrics-server
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        params:
+          TEMPLATE: https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.3.7/components.yaml
 
   - name: metallb
     plan:
@@ -213,6 +259,16 @@ jobs:
         params:
           COMMAND: create
           ARGS: secret generic -n metallb-system memberlist --from-file=secretkey=files/key
+      - task: list-pods
+        file: pipelines/tasks/kubectl-cmd/task.yml
+        output_mapping:
+          output: metallb-pod-list
+        params:
+          COMMAND: get
+          ARGS: -n metallb-system pod -o wide
+      - put: metallb-pod-list
+        params:
+          file: metallb-pod-list/kubectl-cmd.out
 
   - name: powerflex-sdc-init
     plan:
@@ -222,8 +278,6 @@ jobs:
             passed:
               - remove-master-taints
           - get: pipelines
-          - get: powerflex-secret
-            trigger: true
           - get: registry-secret
             trigger: true
           - get: powerflex-sdc-init-repo
@@ -245,27 +299,94 @@ jobs:
           values: powerflex-sdc-init-values/powerflex-sdc-init-values.yaml
           create_namespace: true
           check_is_ready: true
-          reuse_values: true
 
   - name: csi-powerflex
     plan:
       - in_parallel:
+          - get: config
+          - get: pipelines
           - get: powerflex-sdc-init-release
             trigger: true
             passed:
               - powerflex-sdc-init
-          - get: pipelines
+          - get: powerflex-secret
+            trigger: true
           - get: csi-powerflex-repo
             trigger: true
           - get: csi-powerflex-values
             trigger: true
-      - task: apply-snapshot-crds
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        params:
-          TEMPLATE: https://github.com/kubernetes-csi/external-snapshotter/tree/master/client/config/crd
+      - in_parallel:
+        - task: apply-powerflex-csi-secret
+          file: pipelines/tasks/kubectl-apply-template/task.yml
+          input_mapping:
+            templates: powerflex-secret
+          params:
+            TEMPLATE: templates/powerflex-secret.yaml
+        - task: apply-csi-snapshotclass-crd
+          file: pipelines/tasks/kubectl-apply-template/task.yml
+          params:
+            TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+        - task: apply-csi-snapshotcontent-crd
+          file: pipelines/tasks/kubectl-apply-template/task.yml
+          params:
+            TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+        - task: apply-csi-snapshot-crd
+          file: pipelines/tasks/kubectl-apply-template/task.yml
+          params:
+            TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
       - put: csi-powerflex-release
         params:
           chart: csi-powerflex-repo/helm/csi-powerflex
           values: csi-powerflex-values/csi-powerflex-values.yaml
           check_is_ready: true
-          reuse_values: true
+
+  - name: cert-manager
+    plan:
+      - in_parallel:
+        - get: pipelines
+        - get: metallb-pod-list
+          trigger: true
+          passed:
+            - metallb
+        - get: config
+        - get: letsencrypt-issuers
+          trigger: true
+      - task: install-crds
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        params:
+          TEMPLATE: https://github.com/jetstack/cert-manager/releases/download/v0.16.1/cert-manager.crds.yaml
+      - put: cert-manager-release
+        params:
+          chart: jetstack/cert-manager
+          create_namespace: true
+          version: v0.16.1
+          check_is_ready: true
+      - task: create-issuers
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        input_mapping:
+          templates: letsencrypt-issuers
+        params:
+          TEMPLATE: templates/letsencrypt-issuers.yaml
+
+  - name: traefik
+    plan:
+      - in_parallel:
+          - get: metallb-pod-list
+            trigger: true
+            passed:
+              - metallb
+          - get: csi-powerflex-release
+            passed:
+              - csi-powerflex
+          - get: cert-manager-release
+            passed:
+              - cert-manager
+          - get: traefik-values
+            trigger: true
+      - put: traefik-release
+        params:
+          chart: stable/traefik
+          values: traefik-values/traefik-values.yaml
+          check_is_ready: true
+          create_namespace: true
+
