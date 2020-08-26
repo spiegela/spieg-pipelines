@@ -286,6 +286,12 @@ jobs:
             trigger: true
           - get: config
             trigger: true
+      - try:
+          task: create-namespace
+          file: pipelines/tasks/kubectl-cmd/task.yml
+          params:
+            COMMAND: create
+            ARGS: namespace powerflex-system
       - task: apply-registry-secret
         file: pipelines/tasks/kubectl-apply-template/task.yml
         input_mapping:
@@ -297,7 +303,6 @@ jobs:
         params:
           chart: powerflex-sdc-init-repo/helm/powerflex-sdc-init
           values: powerflex-sdc-init-values/powerflex-sdc-init-values.yaml
-          create_namespace: true
           check_is_ready: true
 
   - name: csi-powerflex
@@ -316,12 +321,12 @@ jobs:
           - get: csi-powerflex-values
             trigger: true
       # - in_parallel:
-        - task: apply-powerflex-csi-secret
-          file: pipelines/tasks/kubectl-apply-template/task.yml
-          input_mapping:
-            templates: powerflex-secret
-          params:
-            TEMPLATE: templates/powerflex-secret.yaml
+      - task: apply-powerflex-csi-secret
+        file: pipelines/tasks/kubectl-apply-template/task.yml
+        input_mapping:
+          templates: powerflex-secret
+        params:
+          TEMPLATE: templates/powerflex-secret.yaml
         # - task: apply-csi-snapshotclass-crd
         #   file: pipelines/tasks/kubectl-apply-template/task.yml
         #   params:
