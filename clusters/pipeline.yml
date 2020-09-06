@@ -617,16 +617,15 @@ jobs:
               - kind-config
           - get: clusterctl-release
             trigger: true
-            params:
-              glob: clusterctl-linux-amd64
-      - task: clusterctl-init
-        file: pipelines/tasks/clusterctl-init/task.yml
-        input_mapping:
-          clusterctl: clusterctl-release
-          config: kind-config
-        params:
-          <<: *vsphere_env
-          INFRASTRUCTURE: vsphere:v0.7.0
+      - try:
+          task: clusterctl-init
+          file: pipelines/tasks/clusterctl-init/task.yml
+          input_mapping:
+            clusterctl: clusterctl-release
+            config: kind-config
+          params:
+            <<: *vsphere_env
+            INFRASTRUCTURE: vsphere:v0.7.0
 
   - name: gamboge-cluster-yaml
     plan:
@@ -643,8 +642,6 @@ jobs:
               - kind-clusterctl-init
           - get: clusterctl-release
             trigger: true
-            params:
-              glob: clusterctl-linux-amd64
       - task: generate-cluster-yaml
         file: pipelines/tasks/vsphere-cluster-config/task.yml
         input_mapping:
@@ -726,6 +723,7 @@ jobs:
           git_token: ((git_token))
           private_key: ((private_key))
           docker_credentials: ((docker_credentials))
+          csi_branch: master
       - put: gamboge-config
         params:
           file: kubeconfig/config
@@ -745,8 +743,6 @@ jobs:
               - kind-clusterctl-init
           - get: clusterctl-release
             trigger: true
-            params:
-              glob: clusterctl-linux-amd64
       - task: generate-cluster-yaml
         file: pipelines/tasks/vsphere-cluster-config/task.yml
         input_mapping:
@@ -826,6 +822,7 @@ jobs:
           git_token: ((git_token))
           private_key: ((private_key))
           docker_credentials: ((docker_credentials))
+          csi_branch: v0.1.2-pre
       - put: jonquil-config
         params:
           file: kubeconfig/config

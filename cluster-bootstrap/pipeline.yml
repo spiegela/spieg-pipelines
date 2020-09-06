@@ -5,7 +5,7 @@ s3_env: &s3_env
   access_key_id: ((s3.access_key))
   secret_access_key: ((s3.secret_key))
 
-helm_env: &helm_env
+k8s_env: &k8s_env
   cluster_url: ((cluster_url))
   cluster_ca: ((cluster_ca))
   admin_key: ((admin_key))
@@ -16,6 +16,12 @@ resource_types:
     type: docker-image
     source:
       repository: spiegela/concourse-helm3
+      tag: latest
+
+  - name: kubernetes-object
+    type: docker-image
+    source:
+      repository: spiegela/concourse-kubernetes
       tag: latest
 
 resources:
@@ -32,35 +38,97 @@ resources:
       versioned_file: ClusterAPI/((cluster_name))/config
       <<: *s3_env
 
-  - name: node-list
-    type: s3
+  - name: calico
+    type: kubernetes-object
     source:
-      versioned_file: ClusterAPI/jonquil/node-list
-      <<: *s3_env
+      tracing_enabled: true
+      namespae: kube-system
+      url: https://docs.projectcalico.org/manifests/calico.yaml
+      <<: *k8s_env
 
-  - name: metallb-pod-list
-    type: s3
+  - name: powerflex-system-namespace
+    type: kubernetes-object
     source:
-      versioned_file: ClusterAPI/jonquil/metallb-pod-list
-      <<: *s3_env
+      objects:
+        - name: powerflex-system
+          kind: Namespace
+      <<: *k8s_env
 
-  - name: metallb-configmap
+  - name: metrics-server
+    type: kubernetes-object
+    source:
+      namespace: kube-system
+      url: https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.3.7/components.yaml
+      <<: *k8s_env
+
+  - name: metallb-system-namespace
+    type: kubernetes-object
+    source:
+      url: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
+      <<: *k8s_env
+
+  - name: metallb-configmap-template
     type: s3
     source:
+      namespace: metallb-system
       versioned_file: ClusterAPI/((cluster_name))/metallb-configmap.yaml
       <<: *s3_env
 
-  - name: powerflex-secret
+  - name: memberlist-secret
+    type: kubernetes-object
+    source:
+      namespace: metallb-system
+      objects:
+        - name: memberlist
+          kind: Secret
+      <<: *k8s_env
+
+  - name: metallb-configmap
+    type: kubernetes-object
+    source:
+      namespace: metallb-system
+      tracing_enabled: true
+      objects:
+        - name: metallb-config
+          kind: ConfigMap
+      <<: *k8s_env
+
+  - name: metallb
+    type: kubernetes-object
+    source:
+      namespace: metallb-system
+      url: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
+      <<: *k8s_env
+
+  - name: powerflex-secret-template
     type: s3
     source:
       versioned_file: ClusterAPI/((cluster_name))/powerflex-secret.yaml
       <<: *s3_env
 
-  - name: registry-secret
+  - name: powerflex-secret
+    type: kubernetes-object
+    source:
+      namespace: powerflex-system
+      objects:
+        - name: csi-creds
+          kind: Secret
+      <<: *k8s_env
+
+  - name: registry-secret-template
     type: s3
     source:
       versioned_file: ClusterAPI/((cluster_name))/registry-secret.yaml
       <<: *s3_env
+
+  - name: powerflex-registry-secret
+    type: kubernetes-object
+    source:
+      objects:
+        - name: registry-secret
+          kind: Secret
+      namespace: powerflex-system
+      <<: *k8s_env
 
   - name: powerflex-sdc-init-values
     type: s3
@@ -79,7 +147,7 @@ resources:
     type: git
     source:
       uri: git@github.com:spiegela/csi-powerflex.git
-      branch: master
+      branch: ((csi_branch))
       private_key: ((private_key))
 
   - name: csi-powerflex-values
@@ -93,14 +161,31 @@ resources:
     source:
       release: sdc-init
       namespace: powerflex-system
-      <<: *helm_env
+      <<: *k8s_env
+
+  - name: csi-snapshotclass-crd
+    type: kubernetes-object
+    source:
+      url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+
+  - name: csi-snapshotcontent-crd
+    type: kubernetes-object
+    source:
+      url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+      <<: *k8s_env
+
+  - name: csi-snapshot-crd
+    type: kubernetes-object
+    source:
+      url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+      <<: *k8s_env
 
   - name: csi-powerflex-release
     type: helm-release
     source:
       release: csi
       namespace: powerflex-system
-      <<: *helm_env
+      <<: *k8s_env
 
   - name: traefik-values
     type: s3
@@ -113,7 +198,7 @@ resources:
     source:
       release: traefik
       namespace: traefik-system
-      <<: *helm_env
+      <<: *k8s_env
 
   - name: cert-manager-release
     type: helm-release
@@ -123,43 +208,52 @@ resources:
       repos:
         - name: jetstack
           url: https://charts.jetstack.io
-      <<: *helm_env
+      <<: *k8s_env
 
-  - name: letsencrypt-issuers
+  - name: node-list
+    type: kubernetes-object
+    source:
+      tracing_enabled: true
+      list: nodes
+      <<: *k8s_env
+
+  - name: cert-manager-crds
+    type: kubernetes-object
+    source:
+      namespace: cert-manager
+      url: https://github.com/jetstack/cert-manager/releases/download/v0.16.1/cert-manager.crds.yaml
+      <<: *k8s_env
+
+  - name: letsencrypt-issuers-template
     type: s3
     source:
       versioned_file: ClusterAPI/((cluster_name))/letsencrypt-issuers.yaml
+      <<: *s3_env
+
+  - name: letsencrypt-issuers
+    type: kubernetes-object
+    source:
+      namespace: cert-manager
+      objects:
+        - name: letsencrypt-prod
+          kind: ClusterIssuer
+        - name: letsencrypt-staging
+          kind: ClusterIssuer
       <<: *s3_env
 
 jobs:
 
   - name: calico
     plan:
-      - in_parallel:
-          - get: pipelines
-          - get: config
-            trigger: true
-      - task: calico
-        file: pipelines/tasks/kubectl-apply-template/task.yml
+      - put: calico
+      - get: node-list
         params:
-          TEMPLATE: https://docs.projectcalico.org/manifests/calico.yaml
-      - task: wait-until-nodes-ready
-        file: pipelines/tasks/wait-until-ready/task.yml
-        params:
-          KIND: node
-          DESIRED: '{.items[*].status.conditions[*].status}'
-          READY: '{.items[*].status.conditions[?(@.status=="True")].status}'
-          SUM: wc -c
-      - task: list-nodes
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        output_mapping:
-          output: node-list
-        params:
-          COMMAND: get
-          ARGS: node -o wide
+          wait: true
+          wait_for: '.status.conditions[?(@.type=="Ready")].status'
       - put: node-list
         params:
-          file: node-list/kubectl-cmd.out
+          command: annotate
+          command_args: "nodes --all node-status.spieg.org/calico=Ready"
 
   - name: remove-master-taints
     plan:
@@ -176,129 +270,81 @@ jobs:
           params:
             COMMAND: taint
             ARGS: nodes --all node-role.kubernetes.io/master:NoSchedule-
-      - task: list-nodes
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        output_mapping:
-          output: node-list
-        params:
-          COMMAND: get
-          ARGS: node -o wide
       - put: node-list
         params:
-          file: node-list/kubectl-cmd.out
+          command: annotate
+          command_args: "nodes --all node-status.spieg.org/master-taint-removal=Ready"
 
   - name: metrics-server
     plan:
       - in_parallel:
-          - get: pipelines
           - get: node-list
             passed:
               - remove-master-taints
-          - get: config
-      - task: apply-metrics-server
-        file: pipelines/tasks/kubectl-apply-template/task.yml
+      - put: metrics-server
         params:
-          TEMPLATE: https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.3.7/components.yaml
+          wait: true
 
   - name: metallb
     plan:
       - in_parallel:
           - get: node-list
-            trigger: true
             passed:
               - remove-master-taints
-          - get: pipelines
-          - get: config
-          - get: metallb-configmap
+          - get: metallb-configmap-template
             trigger: true
-          - task: generate-memberlist-key
-            config:
-              platform: linux
-              image_resource:
-                type: docker-image
-                source:
-                  repository: frapsoft/openssl
-                  tag: latest
-              outputs:
-                - name: memberlist-key
-              run:
-                path: /bin/ash
-                args:
-                  - -c
-                  - |
-                    if [[ $DEBUG == "true" ]]; then
-                      set -x
-                    fi
-                    openssl rand -base64 128 > memberlist-key/key
-      - task: create-namespace
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        params:
-          TEMPLATE: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
+          - put: metallb-system-namespace
       - in_parallel:
-          - task: apply-configmap
-            file: pipelines/tasks/kubectl-apply-template/task.yml
-            input_mapping:
-              templates: metallb-configmap
+          - put: metallb-configmap
             params:
-              TEMPLATE: templates/metallb-configmap.yaml
-          - task: apply-metallb-system
-            file: pipelines/tasks/kubectl-apply-template/task.yml
-            params:
-              TEMPLATE: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
-          - task: memberlist-secret-exists
-            file: pipelines/tasks/skip-if-k8s-resource-exists/task.yml
-            params:
-              ARGS: -n metallb-system secret memberlist
-            output_mapping:
-              output: memberlist-exists
-      - task: create-memberlist-secret
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        input_mapping:
-          conditions: memberlist-exists
-          files: memberlist-key
-        params:
-          COMMAND: create
-          ARGS: secret generic -n metallb-system memberlist --from-file=secretkey=files/key
-      - task: list-pods
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        output_mapping:
-          output: metallb-pod-list
-        params:
-          COMMAND: get
-          ARGS: -n metallb-system pod -o wide
-      - put: metallb-pod-list
-        params:
-          file: metallb-pod-list/kubectl-cmd.out
+              file: metallb-configmap-template/metallb-configmap.yaml
+          - put: metallb
+      - get: memberlist-secret
+        on_failure:
+          do:
+            - task: generate-memberlist-key
+              config:
+                platform: linux
+                image_resource:
+                  type: docker-image
+                  source:
+                    repository: frapsoft/openssl
+                    tag: latest
+                outputs:
+                  - name: memberlist-key
+                run:
+                  path: /bin/ash
+                  args:
+                    - -c
+                    - |
+                      if [[ $DEBUG == "true" ]]; then
+                        set -x
+                      fi
+                      openssl rand -base64 128 > memberlist-key/key
+            - put: memberlist-secret
+              params:
+                command_args: secret generic -n metallb-system memberlist --from-file=secretkey=memberlist-key/key
 
   - name: powerflex-sdc-init
     plan:
       - in_parallel:
           - get: node-list
-            trigger: true
             passed:
               - remove-master-taints
-          - get: pipelines
-          - get: registry-secret
+          - get: registry-secret-template
             trigger: true
           - get: powerflex-sdc-init-repo
             trigger: true
           - get: powerflex-sdc-init-values
             trigger: true
-          - get: config
-            trigger: true
-      - try:
-          task: create-namespace
-          file: pipelines/tasks/kubectl-cmd/task.yml
+      - get: powerflex-system-namespace
+        on_failure:
+          put: powerflex-system-namespace
           params:
-            COMMAND: create
-            ARGS: namespace powerflex-system
-      - task: apply-registry-secret
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        input_mapping:
-          templates: registry-secret
+            command_args: namespace powerflex-system
+      - put: powerflex-registry-secret
         params:
-          NAMESPACE: powerflex-system
-          TEMPLATE: templates/registry-secret.yaml
+          file: registry-secret-template/registry-secret.yaml
       - put: powerflex-sdc-init-release
         params:
           chart: powerflex-sdc-init-repo/helm/powerflex-sdc-init
@@ -308,37 +354,22 @@ jobs:
   - name: csi-powerflex
     plan:
       - in_parallel:
-          - get: config
-          - get: pipelines
           - get: powerflex-sdc-init-release
             trigger: true
             passed:
               - powerflex-sdc-init
-          - get: powerflex-secret
+          - get: powerflex-secret-template
             trigger: true
           - get: csi-powerflex-repo
             trigger: true
           - get: csi-powerflex-values
             trigger: true
-      # - in_parallel:
-      - task: apply-powerflex-csi-secret
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        input_mapping:
-          templates: powerflex-secret
+          - put: csi-snapshotclass-crd
+          - put: csi-snapshotcontent-crd
+          - put: csi-snapshot-crd
+      - put: powerflex-secret
         params:
-          TEMPLATE: templates/powerflex-secret.yaml
-        # - task: apply-csi-snapshotclass-crd
-        #   file: pipelines/tasks/kubectl-apply-template/task.yml
-        #   params:
-        #     TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
-        # - task: apply-csi-snapshotcontent-crd
-        #   file: pipelines/tasks/kubectl-apply-template/task.yml
-        #   params:
-        #     TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
-        # - task: apply-csi-snapshot-crd
-        #   file: pipelines/tasks/kubectl-apply-template/task.yml
-        #   params:
-        #     TEMPLATE: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+          file: powerflex-secret-template/powerflex-secret.yaml
       - put: csi-powerflex-release
         params:
           chart: csi-powerflex-repo/helm/csi-powerflex
@@ -348,35 +379,29 @@ jobs:
   - name: cert-manager
     plan:
       - in_parallel:
-        - get: pipelines
-        - get: metallb-pod-list
+        - get: metallb
           trigger: true
           passed:
             - metallb
-        - get: config
-        - get: letsencrypt-issuers
+        - get: letsencrypt-issuers-template
           trigger: true
-      - task: install-crds
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        params:
-          TEMPLATE: https://github.com/jetstack/cert-manager/releases/download/v0.16.1/cert-manager.crds.yaml
+        - get: cert-manager-crds
+          on_failure:
+            put: cert-manager-crds
       - put: cert-manager-release
         params:
           chart: jetstack/cert-manager
           create_namespace: true
           version: v0.16.1
           check_is_ready: true
-      - task: create-issuers
-        file: pipelines/tasks/kubectl-apply-template/task.yml
-        input_mapping:
-          templates: letsencrypt-issuers
+      - put: letsencrypt-issuers
         params:
-          TEMPLATE: templates/letsencrypt-issuers.yaml
+          file: letsencrypt-issuers-template/letsencrypt-issuers.yaml
 
   - name: traefik
     plan:
       - in_parallel:
-          - get: metallb-pod-list
+          - get: metallb
             trigger: true
             passed:
               - metallb
@@ -394,4 +419,3 @@ jobs:
           values: traefik-values/traefik-values.yaml
           check_is_ready: true
           create_namespace: true
-
