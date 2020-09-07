@@ -125,7 +125,7 @@ resources:
     type: kubernetes-object
     source:
       objects:
-        - name: registry-secret
+        - name: dockerhub-registry
           kind: Secret
       namespace: powerflex-system
       <<: *k8s_env
