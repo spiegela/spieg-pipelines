@@ -331,13 +331,14 @@ jobs:
                   args:
                     - -c
                     - |
-                      if [[ $DEBUG == "true" ]]; then
+                      if [ $DEBUG == "true" ]; then
                         set -x
                       fi
                       openssl rand -base64 128 > memberlist-key/key
             - put: memberlist-secret
               params:
-                command_args: secret generic -n metallb-system memberlist --from-file=secretkey=memberlist-key/key
+                command: create
+                command_args: generic --from-file=secretkey=memberlist-key/key
 
   - name: powerflex-sdc-init
     plan:
