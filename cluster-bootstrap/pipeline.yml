@@ -167,6 +167,7 @@ resources:
     type: kubernetes-object
     source:
       url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+      <<: *k8s_env
 
   - name: csi-snapshotcontent-crd
     type: kubernetes-object
@@ -204,7 +205,7 @@ resources:
     type: helm-release
     source:
       release: cert-manager
-      namespace: cert-manager-system
+      namespace: cert-manager
       repos:
         - name: jetstack
           url: https://charts.jetstack.io
@@ -421,9 +422,10 @@ jobs:
             trigger: true
             passed:
               - remove-master-taints
-      - get: helm-operator-crds
-        on_failure:
-          put: helm-operator-crds
+      - try:
+          get: helm-operator-crds
+          on_failure:
+            put: helm-operator-crds
       - put: helm-operator-release
         params:
           chart: fluxcd/helm-operator
