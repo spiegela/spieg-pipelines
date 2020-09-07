@@ -253,7 +253,7 @@ jobs:
       - put: node-list
         params:
           command: annotate
-          command_args: "nodes --all node-status.spieg.org/calico=Ready"
+          command_args: "--overwrite --all node-status.spieg.org/calico-ready=((cluster_version))"
 
   - name: remove-master-taints
     plan:
@@ -273,7 +273,7 @@ jobs:
       - put: node-list
         params:
           command: annotate
-          command_args: "nodes --all node-status.spieg.org/master-taint-removal=Ready"
+          command_args: "--overwrite --all node-status.spieg.org/master-taint-removed=((cluster_version))"
 
   - name: metrics-server
     plan:

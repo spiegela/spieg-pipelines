@@ -134,6 +134,18 @@ resources:
       versioned_file: ClusterAPI/all/config
       <<: *s3_env
 
+  - name: gamboge-version
+    type: semver
+    source:
+      key: ClusterAPI/gamboge/version
+      <<: *s3_env
+
+  - name: jonquil-version
+    type: semver
+    source:
+      key: ClusterAPI/jonquil/version
+      <<: *s3_env
+
 jobs:
 
   - name: kube-templates-1.16.x
@@ -713,17 +725,24 @@ jobs:
         file: pipelines/tasks/kubeconfig-to-vars/task.yml
         params:
           DEBUG: true
+      - get: gamboge-version
+        params:
+          bump: patch
+          file: version
+      - load_var: gamboge-version
+        file: gamboge-version/version
       - set_pipeline: gamboge-bootstrap
         file: pipelines/cluster-bootstrap/pipeline.yml
         var_files:
           - vars/kube-vars.yml
         vars:
           cluster_name: gamboge
+          csi_branch: master
+          cluster_version: ((.:gamboge-version))
           s3: ((s3))
           git_token: ((git_token))
           private_key: ((private_key))
           docker_credentials: ((docker_credentials))
-          csi_branch: master
       - put: gamboge-config
         params:
           file: kubeconfig/config
@@ -812,17 +831,24 @@ jobs:
           OUT: config
       - task: create-kubeconfig-vars
         file: pipelines/tasks/kubeconfig-to-vars/task.yml
+      - get: jonquil-version
+        params:
+          bump: patch
+          file: version
+      - load_var: jonquil-version
+        file: jonquil-version/version
       - set_pipeline: jonquil-bootstrap
         file: pipelines/cluster-bootstrap/pipeline.yml
         var_files:
           - vars/kube-vars.yml
         vars:
           cluster_name: jonquil
+          csi_branch: v0.1.2-pre
+          cluster_version: ((.:jonquil-version))
           s3: ((s3))
           git_token: ((git_token))
           private_key: ((private_key))
           docker_credentials: ((docker_credentials))
-          csi_branch: v0.1.2-pre
       - put: jonquil-config
         params:
           file: kubeconfig/config
