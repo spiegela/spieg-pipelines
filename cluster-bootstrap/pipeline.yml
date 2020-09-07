@@ -239,7 +239,7 @@ resources:
           kind: ClusterIssuer
         - name: letsencrypt-staging
           kind: ClusterIssuer
-      <<: *s3_env
+      <<: *k8s_env
 
 jobs:
 
