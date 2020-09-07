@@ -241,6 +241,22 @@ resources:
           kind: ClusterIssuer
       <<: *k8s_env
 
+  - name: helm-operator-crds
+    type: kubernetes-object
+    source:
+      url: https://raw.githubusercontent.com/fluxcd/helm-operator/master/deploy/crds.yaml
+      <<: *k8s_env
+
+  - name: helm-operator-release
+    type: helm-release
+    source:
+      release: helm-operator
+      namespace: fluxcd-system
+      repos:
+        - name: fluxcd
+          url: https://charts.fluxcd.io
+      <<: *k8s_env
+
 jobs:
 
   - name: calico
@@ -397,6 +413,22 @@ jobs:
       - put: letsencrypt-issuers
         params:
           file: letsencrypt-issuers-template/letsencrypt-issuers.yaml
+
+  - name: helm-operator
+    plan:
+      - in_parallel:
+          - get: node-list
+            trigger: true
+            passed:
+              - remove-master-taints
+      - get: helm-operator-crds
+        on_failure:
+          put: helm-operator-crds
+      - put: helm-operator-release
+        params:
+          chart: fluxcd/helm-operator
+          create_namespace: true
+          check_is_ready: true
 
   - name: traefik
     plan:
