@@ -41,7 +41,6 @@ resources:
   - name: calico
     type: kubernetes-object
     source:
-      tracing_enabled: true
       namespae: kube-system
       url: https://docs.projectcalico.org/manifests/calico.yaml
       <<: *k8s_env
@@ -87,7 +86,6 @@ resources:
     type: kubernetes-object
     source:
       namespace: metallb-system
-      tracing_enabled: true
       objects:
         - name: metallb-config
           kind: ConfigMap
@@ -214,7 +212,6 @@ resources:
   - name: node-list
     type: kubernetes-object
     source:
-      tracing_enabled: true
       list: nodes
       <<: *k8s_env
 
@@ -245,6 +242,7 @@ resources:
   - name: helm-operator-crds
     type: kubernetes-object
     source:
+      tracing_enabled: true
       url: https://raw.githubusercontent.com/fluxcd/helm-operator/master/deploy/crds.yaml
       <<: *k8s_env
 
@@ -282,11 +280,10 @@ jobs:
           - get: pipelines
           - get: config
       - try:
-          task: remove-master-taints
-          file: pipelines/tasks/kubectl-cmd/task.yml
+          put: node-list
           params:
-            COMMAND: taint
-            ARGS: nodes --all node-role.kubernetes.io/master:NoSchedule-
+            command: taint
+            command_args: "--all node-role.kubernetes.io/master:NoSchedule-"
       - put: node-list
         params:
           command: annotate
@@ -381,9 +378,41 @@ jobs:
             trigger: true
           - get: csi-powerflex-values
             trigger: true
-          - put: csi-snapshotclass-crd
-          - put: csi-snapshotcontent-crd
-          - put: csi-snapshot-crd
+          - do:
+            - get: node-list
+              params:
+                output: jsonpath='{.items[0].status.nodeInfo.kubeletVersion}'
+                output_file: version.txt
+            - task: k8s-newer-than-1.16
+              config:
+                platform: linux
+                image_resource:
+                  type: docker-image
+                  source:
+                    repository: alpine
+                    tag: latest
+                inputs:
+                  - name: node-list
+                run:
+                  path: /bin/ash
+                  args:
+                    - -c
+                    - |
+                      if [[ $DEBUG == "true" ]]; then
+                        set -x
+                      fi
+                      if [ $(cat node-list/version.txt | cut -d"." -f2) -gt 16 ]; then
+                        echo "Kubernetes is older than 1.17, so we're not going to install the snapshotter CRDs."
+                        exit 1
+                      else
+                        echo "Kubernetes is 1.17 or newer, so we going to install the snapshotter CRDs."
+                        exit 0
+                      fi
+            on_success:
+              in_parallel:
+                - put: csi-snapshotclass-crd
+                - put: csi-snapshotcontent-crd
+                - put: csi-snapshot-crd
       - put: powerflex-secret
         params:
           file: powerflex-secret-template/powerflex-secret.yaml
