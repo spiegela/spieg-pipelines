@@ -744,6 +744,8 @@ jobs:
           private_key: ((private_key))
           docker_credentials: ((docker_credentials))
       - put: gamboge-version
+        params:
+          bump: patch
       - put: gamboge-config
         params:
           file: kubeconfig/config
@@ -851,6 +853,8 @@ jobs:
           private_key: ((private_key))
           docker_credentials: ((docker_credentials))
       - put: jonquil-version
+        params:
+          bump: patch
       - put: jonquil-config
         params:
           file: kubeconfig/config
