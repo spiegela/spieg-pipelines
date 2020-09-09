@@ -320,34 +320,37 @@ jobs:
             params:
               file: metallb-configmap-template/metallb-configmap.yaml
           - put: metallb
-      - get: memberlist-secret
-        on_failure:
-          do:
-            - task: generate-memberlist-key
-              config:
-                platform: linux
-                outputs:
-                  - name: memberlist
-                image_resource:
-                  type: docker-image
-                  source:
-                    repository: frapsoft/openssl
-                    tag: latest
-                run:
-                  path: /bin/ash
-                  args:
-                    - -c
-                    - |
-                      if [ $DEBUG == "true" ]; then
-                        set -x
-                      fi
-                      openssl rand -base64 128 > memberlist/secretKey
-            - put: memberlist-secret
-              inputs:
-                - memberlist
-              params:
-                command: create
-                command_args: generic --from-file memberlist
+      - try:
+          get: memberlist-secret
+          on_failure:
+            do:
+              - task: generate-memberlist-key
+                config:
+                  platform: linux
+                  outputs:
+                    - name: memberlist
+                  image_resource:
+                    type: docker-image
+                    source:
+                      repository: frapsoft/openssl
+                      tag: latest
+                  run:
+                    path: /bin/ash
+                    args:
+                      - -c
+                      - |
+                        if [ $DEBUG == "true" ]; then
+                          set -x
+                        fi
+                        openssl rand -base64 128 > memberlist/secretkey
+              - load_var: memberlist-secret
+                file: memberlist/secretkey
+              - put: memberlist-secret
+                inputs:
+                  - memberlist
+                params:
+                  command: create
+                  command_args: generic --from-literal=secretkey=((.:memberlist-secret))
 
   - name: powerflex-sdc-init
     plan:
@@ -420,7 +423,7 @@ jobs:
                       if [[ $DEBUG == "true" ]]; then
                         set -x
                       fi
-                      if [ $(cat node-list/version.txt | cut -d"." -f2) -gt 16 ]; then
+                      if [[ $(cat node-list/version.txt | cut -d"." -f2 | tr -d "\n") -gt 16 ]]; then
                         echo "Kubernetes is older than 1.17, so we're not going to install the snapshotter CRDs."
                         exit 1
                       else
