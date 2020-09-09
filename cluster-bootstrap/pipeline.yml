@@ -365,11 +365,12 @@ jobs:
             trigger: true
           - get: powerflex-sdc-init-values
             trigger: true
-      - get: powerflex-system-namespace
-        on_failure:
-          put: powerflex-system-namespace
-          params:
-            command: create
+      - try:
+          get: powerflex-system-namespace
+          on_failure:
+            put: powerflex-system-namespace
+            params:
+              command: create
       - put: powerflex-registry-secret
         params:
           file: registry-secret-template/registry-secret.yaml
