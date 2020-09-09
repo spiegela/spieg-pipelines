@@ -104,6 +104,12 @@ resources:
       versioned_file: ClusterAPI/((cluster_name))/powerflex-secret.yaml
       <<: *s3_env
 
+  - name: helm-operator-values
+    type: s3
+    source:
+      versioned_file: ClusterAPI/((cluster_name))/fluxcd-helm-operator-values.yaml
+      <<: *s3_env
+
   - name: powerflex-secret
     type: kubernetes-object
     source:
@@ -242,7 +248,6 @@ resources:
   - name: helm-operator-crds
     type: kubernetes-object
     source:
-      tracing_enabled: true
       url: https://raw.githubusercontent.com/fluxcd/helm-operator/master/deploy/crds.yaml
       <<: *k8s_env
 
@@ -293,6 +298,7 @@ jobs:
     plan:
       - in_parallel:
           - get: node-list
+            trigger: true
             passed:
               - remove-master-taints
       - put: metrics-server
@@ -303,6 +309,7 @@ jobs:
     plan:
       - in_parallel:
           - get: node-list
+            trigger: true
             passed:
               - remove-master-taints
           - get: metallb-configmap-template
@@ -319,13 +326,13 @@ jobs:
             - task: generate-memberlist-key
               config:
                 platform: linux
+                outputs:
+                  - name: memberlist
                 image_resource:
                   type: docker-image
                   source:
                     repository: frapsoft/openssl
                     tag: latest
-                outputs:
-                  - name: memberlist-key
                 run:
                   path: /bin/ash
                   args:
@@ -334,16 +341,19 @@ jobs:
                       if [ $DEBUG == "true" ]; then
                         set -x
                       fi
-                      openssl rand -base64 128 > memberlist-key/key
+                      openssl rand -base64 128 > memberlist/secretKey
             - put: memberlist-secret
+              inputs:
+                - memberlist
               params:
                 command: create
-                command_args: generic --from-file=secretkey=memberlist-key/key
+                command_args: generic --from-file memberlist
 
   - name: powerflex-sdc-init
     plan:
       - in_parallel:
           - get: node-list
+            trigger: true
             passed:
               - remove-master-taints
           - get: registry-secret-template
@@ -356,7 +366,7 @@ jobs:
         on_failure:
           put: powerflex-system-namespace
           params:
-            command_args: namespace powerflex-system
+            command: create
       - put: powerflex-registry-secret
         params:
           file: registry-secret-template/registry-secret.yaml
@@ -432,9 +442,10 @@ jobs:
             - metallb
         - get: letsencrypt-issuers-template
           trigger: true
-        - get: cert-manager-crds
-          on_failure:
-            put: cert-manager-crds
+        - try:
+            get: cert-manager-crds
+            on_failure:
+              put: cert-manager-crds
       - put: cert-manager-release
         params:
           chart: jetstack/cert-manager
@@ -452,6 +463,8 @@ jobs:
             trigger: true
             passed:
               - remove-master-taints
+          - get: helm-operator-values
+            trigger: true
       - try:
           get: helm-operator-crds
           on_failure:
@@ -459,6 +472,7 @@ jobs:
       - put: helm-operator-release
         params:
           chart: fluxcd/helm-operator
+          values: helm-operator-values/fluxcd-helm-operator-values.yaml
           create_namespace: true
           check_is_ready: true
 
