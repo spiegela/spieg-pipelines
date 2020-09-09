@@ -14,6 +14,7 @@ params:
   COMMAND:
   ARGS:
   PRIVATE_KEY:
+  OUTFILE: ssh-exec.out
 
 inputs:
   - name: conditions
@@ -72,6 +73,6 @@ run:
       chmod 600 ~/.ssh/id_rsa
 
       read -r -a ARGS <<< "$ARGS"
-      ssh "${USERNAME}@${HOST}" "${COMMAND}" "${ARGS[@]}" > output/ssh-exec.out
+      ssh "${USERNAME}@${HOST}" "${COMMAND}" "${ARGS[@]}" > "output/${OUTFILE}"
 
       exit 0
