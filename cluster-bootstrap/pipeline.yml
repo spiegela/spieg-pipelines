@@ -60,6 +60,15 @@ resources:
       url: https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.3.7/components.yaml
       <<: *k8s_env
 
+  - name: kube-proxy-configmap
+    type: kubernetes-object
+    source:
+      namespace: kube-system
+      objects:
+        - kind: ConfigMap
+          name: kube-proxy
+      <<: *k8s_env
+
   - name: metallb-system-namespace
     type: kubernetes-object
     source:
@@ -315,43 +324,64 @@ jobs:
           - get: metallb-configmap-template
             trigger: true
           - put: metallb-system-namespace
-      - in_parallel:
-          - put: metallb-configmap
+          - get: kube-proxy-configmap
             params:
-              file: metallb-configmap-template/metallb-configmap.yaml
-          - put: metallb
-      - try:
-          get: memberlist-secret
-          on_failure:
-            do:
-              - task: generate-memberlist-key
-                config:
-                  platform: linux
-                  outputs:
-                    - name: memberlist
-                  image_resource:
-                    type: docker-image
-                    source:
-                      repository: frapsoft/openssl
-                      tag: latest
-                  run:
-                    path: /bin/ash
-                    args:
-                      - -c
-                      - |
-                        if [ $DEBUG == "true" ]; then
-                          set -x
-                        fi
-                        openssl rand -base64 128 > memberlist/secretkey
-              - load_var: memberlist-secret
-                file: memberlist/secretkey
-              - put: memberlist-secret
-                inputs:
-                  - memberlist
-                params:
-                  command: create
-                  command_args: generic --from-literal=secretkey=((.:memberlist-secret))
-
+              output: yaml
+              output_file: kube-proxy-configmap.yaml
+      - task: enable-kube-proxy-strict-arp
+        config:
+          plaform: linux
+          outputs:
+            - strict-arp-conf
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          run:
+            path: /bin/ash
+            args:
+              - -c
+              - "sed -e 's|strictARP: false|strictARP: true|' < kube-proxy-configmap/config.conf > strict-arp-conf/kube-proxy-configmap.yaml"
+      - put: kube-proxy-configmap
+        params:
+          file: strict-arp-conf/kube-proxy-configmap.yaml
+      - in_parallel:
+         - put: metallb-configmap
+           params:
+             file: metallb-configmap-template/metallb-configmap.yaml
+         - try:
+             get: memberlist-secret
+             on_failure:
+               do:
+                 - task: generate-memberlist-key
+                   config:
+                     platform: linux
+                     outputs:
+                       - name: memberlist
+                     image_resource:
+                       type: docker-image
+                       source:
+                         repository: frapsoft/openssl
+                         tag: latest
+                     run:
+                       path: /bin/ash
+                       args:
+                         - -c
+                         - |
+                           if [ $DEBUG == "true" ]; then
+                             set -x
+                           fi
+                           openssl rand -base64 128 > memberlist/secretkey
+                 - load_var: memberlist-secret
+                   file: memberlist/secretkey
+                 - put: memberlist-secret
+                   inputs:
+                     - memberlist
+                   params:
+                     command: create
+                     command_args: generic --from-literal=secretkey=((.:memberlist-secret))
+         - put: metallb
   - name: powerflex-sdc-init
     plan:
       - in_parallel:
