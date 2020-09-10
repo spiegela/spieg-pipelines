@@ -28,6 +28,19 @@ vsphere_env: &vsphere_env
   VSPHERE_FOLDER: ClusterAPI
   EXP_CLUSTER_RESOURCE_SET: "true"
 
+k8s_env: &k8s_env
+  cluster_url: ((cluster_url))
+  cluster_ca: ((cluster_ca))
+  admin_key: ((admin_key))
+  admin_cert: ((admin_cert))
+
+resource_types:
+  - name: kubernetes-object
+    type: docker-image
+    source:
+        repository: spiegela/concourse-kubernetes
+        tag: latest
+
 resources:
   - name: pipelines
     type: git
@@ -72,6 +85,12 @@ resources:
       versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.18.x.json
       <<: *s3_env
 
+  - name: credentials
+    type: s3
+    source:
+      versioned_file: ClusterAPI/credentials.yaml
+      <<: *s3_env
+
   - name: kind-config
     type: s3
     source:
@@ -109,6 +128,38 @@ resources:
     source:
       versioned_file: ClusterAPI/jonquil/cluster.yaml
       <<: *s3_env
+
+  - name: jonquil-cluster
+    type: kubernetes-object
+    source:
+      objects:
+        - name: jonquil
+          kind: Cluster
+      <<: *k8s_env
+
+  - name: gamboge-cluster
+    type: kubernetes-object
+    source:
+      objects:
+        - name: jonquil
+          kind: Cluster
+      <<: *k8s_env
+
+  - name: jonquil-kubeconfig-secret
+    type: kubernetes-object
+    source:
+      objects:
+        - name: jonquil-kubeconfig
+          kind: Secret
+      <<: *k8s_env
+
+  - name: gamboge-kubeconfig-secret
+    type: kubernetes-object
+    source:
+      objects:
+        - name: gamboge-kubeconfig
+          kind: Secret
+      <<: *k8s_env
 
   - name: gamboge-config
     type: s3
@@ -517,6 +568,7 @@ jobs:
     plan:
       - in_parallel:
         - get: pipelines
+        - get: credentials
         - get: kind-ip-address
           trigger: true
           passed:
@@ -585,16 +637,16 @@ jobs:
           USERNAME: spiegela
           COMMAND: sudo
           ARGS: mv ./kind /usr/local/bin
-      - task: delete-kind-cluster-if-exists
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: kind-ip-address
-        params:
-          IGNORE_ERROR: true
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: /usr/local/bin/kind
-          ARGS: delete cluster
+      - try:
+          task: delete-kind-cluster-if-exists
+          file: pipelines/tasks/ssh-exec/task.yml
+          input_mapping:
+            connection: kind-ip-address
+          params:
+            PRIVATE_KEY: ((private_key))
+            USERNAME: spiegela
+            COMMAND: /usr/local/bin/kind
+            ARGS: delete cluster
       - task: create-kind-cluster
         file: pipelines/tasks/ssh-exec/task.yml
         input_mapping:
@@ -615,9 +667,19 @@ jobs:
           USERNAME: spiegela
           COMMAND: /usr/local/bin/kind
           ARGS: get kubeconfig
+          OUTFILE: config
+      - task: create-kubeconfig-vars
+        file: pipelines/tasks/kubeconfig-to-vars/task.yml
+        input_mapping:
+          kubeconfig: kind-config
+      - set_pipeline: self
+        file: pipelines/clusters/pipeline.yml
+        var_files:
+          - kind-config/config
+          - credentials/credentials.yaml
       - put: kind-config
         params:
-          file: kind-config/ssh-exec.out
+          file: kind-config/config
 
   - name: kind-clusterctl-init
     plan:
@@ -677,79 +739,6 @@ jobs:
         params:
           file: cluster/cluster.yaml
 
-  - name: gamboge-cluster
-    serial_groups:
-      - cluster-creation
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: clusterctl-release
-          - get: kind-config
-            passed:
-              - kind-clusterctl-init
-          - get: gamboge-cluster-yaml
-            trigger: true
-            passed:
-              - gamboge-cluster-yaml
-      - task: apply-cluster
-        file: pipelines/tasks/kubectl-apply-cluster-template/task.yml
-        input_mapping:
-          config: kind-config
-          templates: gamboge-cluster-yaml
-          clusterctl: clusterctl-release
-      - task: wait-until-available
-        file: pipelines/tasks/wait-until-cluster-available/task.yml
-        input_mapping:
-          config: kind-config
-        params:
-          NAME: gamboge
-      - task: fetch-secret
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        input_mapping:
-          config: kind-config
-        output_mapping:
-          output: encoded-secret
-        params:
-          COMMAND: get
-          ARGS: secret gamboge-kubeconfig -o jsonpath='{.data.value}'
-      - task: decode-secret
-        file: pipelines/tasks/base64/task.yml
-        output_mapping:
-          out: kubeconfig
-        input_mapping:
-          in: encoded-secret
-        params:
-          IN: kubectl-cmd.out
-          OUT: config
-      - task: create-kubeconfig-vars
-        file: pipelines/tasks/kubeconfig-to-vars/task.yml
-        params:
-          DEBUG: true
-      - get: gamboge-version
-        params:
-          bump: patch
-          file: version
-      - load_var: gamboge-version
-        file: gamboge-version/version
-      - set_pipeline: gamboge-bootstrap
-        file: pipelines/cluster-bootstrap/pipeline.yml
-        var_files:
-          - vars/kube-vars.yml
-        vars:
-          cluster_name: gamboge
-          csi_branch: master
-          cluster_version: ((.:gamboge-version))
-          s3: ((s3))
-          git_token: ((git_token))
-          private_key: ((private_key))
-          docker_credentials: ((docker_credentials))
-      - put: gamboge-version
-        params:
-          bump: patch
-      - put: gamboge-config
-        params:
-          file: kubeconfig/config
-
   - name: jonquil-cluster-yaml
     plan:
       - in_parallel:
@@ -788,6 +777,67 @@ jobs:
         params:
           file: cluster/cluster.yaml
 
+  - name: gamboge-cluster
+    serial_groups:
+      - cluster-creation
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: clusterctl-release
+          - get: kind-config
+            passed:
+              - kind-clusterctl-init
+          - get: gamboge-cluster-yaml
+            trigger: true
+            passed:
+              - gamboge-cluster-yaml
+      - put: gamboge-cluster
+        params:
+          file: gamboge-cluster-yaml/cluster.yaml
+          wait: true
+          wait_for: condition=ready
+          kubeconfig_path: kind-config/config
+      - get: gamboge-kubeconfig-secret
+        params:
+          output: jsonpath='{.data.value}'
+          output_file: gamboge-kubeconfig-encoded
+          kubeconfig_path: kind-config/config
+      - task: decode-secret
+        file: pipelines/tasks/base64/task.yml
+        output_mapping:
+          out: kubeconfig
+        input_mapping:
+          in: encoded-secret
+        params:
+          IN: gambooge-kubeconfig-encoded
+          OUT: config
+      - task: create-kubeconfig-vars
+        file: pipelines/tasks/kubeconfig-to-vars/task.yml
+      - get: gamboge-version
+        params:
+          bump: patch
+          file: version
+      - load_var: gamboge-version
+        file: gamboge-version/version
+      - set_pipeline: gamboge-bootstrap
+        file: pipelines/cluster-bootstrap/pipeline.yml
+        var_files:
+          - vars/kube-vars.yml
+        vars:
+          cluster_name: gamboge
+          csi_branch: master
+          cluster_version: ((.:gamboge-version))
+          s3: ((s3))
+          git_token: ((git_token))
+          private_key: ((private_key))
+          docker_credentials: ((docker_credentials))
+      - put: gamboge-version
+        params:
+          bump: patch
+      - put: gamboge-config
+        params:
+          file: kubeconfig/config
+
   - name: jonquil-cluster
     serial_groups:
       - cluster-creation
@@ -802,27 +852,17 @@ jobs:
             trigger: true
             passed:
               - jonquil-cluster-yaml
-      - task: create-cluster
-        file: pipelines/tasks/kubectl-apply-cluster-template/task.yml
-        input_mapping:
-          config: kind-config
-          templates: jonquil-cluster-yaml
-          clusterctl: clusterctl-release
-      - task: wait-until-available
-        file: pipelines/tasks/wait-until-cluster-available/task.yml
-        input_mapping:
-          config: kind-config
+      - put: jonquil-cluster
         params:
-          NAME: jonquil
-      - task: fetch-secret
-        file: pipelines/tasks/kubectl-cmd/task.yml
-        input_mapping:
-          config: kind-config
-        output_mapping:
-          output: encoded-secret
+          file: jonquil-cluster-yaml/cluster.yaml
+          wait: true
+          wait_for: condition=ready
+          kubeconfig_path: kind-config/config
+      - get: jonquil-kubeconfig-secret
         params:
-          COMMAND: get
-          ARGS: secret jonquil-kubeconfig -o jsonpath='{.data.value}'
+          output: jsonpath='{.data.value}'
+          output_file: jonquil-kubeconfig-encoded
+          kubeconfig_path: kind-config/config
       - task: decode-secret
         file: pipelines/tasks/base64/task.yml
         output_mapping:
@@ -830,7 +870,7 @@ jobs:
         input_mapping:
           in: encoded-secret
         params:
-          IN: kubectl-cmd.out
+          IN: jonquil-kubeconfig-encoded
           OUT: config
       - task: create-kubeconfig-vars
         file: pipelines/tasks/kubeconfig-to-vars/task.yml
