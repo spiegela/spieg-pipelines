@@ -1,0 +1,41 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: pivotalgreenhouse/govc
+    tag: latest
+
+params:
+  DEBUG:
+  VM:
+  GOVC_INSECURE:
+  GOVC_URL:
+  GOVC_USERNAME:
+  GOVC_PASSWORD:
+  GOVC_DATACENTER:
+  GOVC_DATASTORE:
+  GOVC_NETWORK:
+  GOVC_RESOURCE_POOL:
+
+inputs:
+  - name: files
+    optional: true
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      if [[ $DEBUG == true ]]; then
+        set -x
+        ls -lr files
+      fi
+
+      read -r -a ARGS <<< "$ARGS"
+      VM_LIST=$(govc ls "${VM}" | wc -l | awk '{print $1}')
+      if [[ $VM_LIST = 0 ]]; then
+        exit 1
+      fi
+      exit 0
