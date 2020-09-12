@@ -43,6 +43,8 @@ run:
     - |
       set -e
       set -x
+
+      mkdir -p /root/.cluster-api
       chmod +x clusterctl/clusterctl-linux-amd64
       clusterctl/clusterctl-linux-amd64 config cluster "${CLUSTER_NAME}" > cluster/cluster.yaml
 
