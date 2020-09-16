@@ -911,16 +911,16 @@ jobs:
       - get: gamboge-kubeconfig-secret
         params:
           output: jsonpath='{.data.value}'
-          output_file: gamboge-kubeconfig-encoded
+          output_file: config.base64
           kubeconfig_path: kind-config/config
       - task: decode-secret
         file: pipelines/tasks/base64/task.yml
         output_mapping:
           out: kubeconfig
         input_mapping:
-          in: encoded-secret
+          in: gamboge-kubeconfig-secret
         params:
-          IN: gambooge-kubeconfig-encoded
+          IN: config.base64
           OUT: config
       - task: create-kubeconfig-vars
         file: pipelines/tasks/kubeconfig-to-vars/task.yml
@@ -972,16 +972,16 @@ jobs:
       - get: jonquil-kubeconfig-secret
         params:
           output: jsonpath='{.data.value}'
-          output_file: jonquil-kubeconfig-encoded
+          output_file: config.base64
           kubeconfig_path: kind-config/config
       - task: decode-secret
         file: pipelines/tasks/base64/task.yml
         output_mapping:
           out: kubeconfig
         input_mapping:
-          in: encoded-secret
+          in: jonquil-kubeconfig-secret
         params:
-          IN: jonquil-kubeconfig-encoded
+          IN: config.base64
           OUT: config
       - task: create-kubeconfig-vars
         file: pipelines/tasks/kubeconfig-to-vars/task.yml
