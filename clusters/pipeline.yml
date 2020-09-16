@@ -153,7 +153,7 @@ resources:
     type: kubernetes-object
     source:
       objects:
-        - name: jonquil
+        - name: gamboge
           kind: Cluster
       <<: *k8s_env
 
