@@ -834,6 +834,7 @@ jobs:
           config: kind-config
         params:
           <<: *vsphere_env
+          GITHUB_TOKEN: ((git_token))
           CLUSTER_NAME: gamboge
           VSPHERE_TEMPLATE: centos-7-kube-v1.16.9
           CONTROL_PLANE_ENDPOINT_IP: 192.168.77.60
@@ -872,6 +873,7 @@ jobs:
           config: kind-config
         params:
           <<: *vsphere_env
+          GITHUB_TOKEN: ((git_token))
           CLUSTER_NAME: jonquil
           VSPHERE_TEMPLATE: centos-7-kube-v1.18.2
           CONTROL_PLANE_ENDPOINT_IP: 192.168.77.180

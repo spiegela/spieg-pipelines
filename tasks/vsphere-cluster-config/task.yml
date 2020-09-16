@@ -17,6 +17,7 @@ outputs:
 params:
   KUBECONFIG: config/config
   NAMESPACE: default
+  GITHUB_TOKEN:
   VSPHERE_PASSWORD:
   CLUSTER_NAME:
   CONTROL_PLANE_MACHINE_COUNT:
