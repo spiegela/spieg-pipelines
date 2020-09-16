@@ -64,7 +64,7 @@ resources:
   - name: kube-template-v1.18.x
     type: s3
     source:
-      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.18.8).ova
+      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.18.2).ova
       <<: *s3_env
 
   - name: kube-template-v1.19.x
@@ -402,14 +402,14 @@ jobs:
           file: pipelines/tasks/vm-exists/task.yml
           params:
             <<: *govc_env
-            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.18.8
+            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.18.2
           on_success:
             task: delete-previous
             file: pipelines/tasks/govc-cmd/task.yml
             params:
               <<: *govc_env
               COMMAND: vm.destroy
-              ARGS: centos-7-kube-v1.18.8
+              ARGS: centos-7-kube-v1.18.2
       - task: import-ova-spec
         file: pipelines/tasks/govc-cmd/task.yml
         input_mapping:
@@ -419,7 +419,7 @@ jobs:
         params:
           <<: *govc_env
           COMMAND: import.spec
-          ARGS: files/centos-7-kube-v1.18.8.ova
+          ARGS: files/centos-7-kube-v1.18.2.ova
       - task: configure-ova-network
         config:
           platform: linux
@@ -462,13 +462,13 @@ jobs:
                 if [[ $DEBUG == true ]]; then
                   set -x
                 fi
-                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.18.x/centos-7-kube-v1.18.8.ova
+                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.18.x/centos-7-kube-v1.18.2.ova
       - task: templatize
         file: pipelines/tasks/govc-cmd/task.yml
         params:
           <<: *govc_env
           COMMAND: vm.markastemplate
-          ARGS: centos-7-kube-v1.18.8
+          ARGS: centos-7-kube-v1.18.2
       - task: get-info
         file: pipelines/tasks/govc-cmd/task.yml
         output_mapping:
@@ -476,7 +476,7 @@ jobs:
         params:
           <<: *govc_env
           COMMAND: vm.info
-          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.18.8
+          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.18.2
       - put: kube-template-info-v1.18.x
         params:
           file: vm-info/govc-cmd.out
@@ -786,7 +786,7 @@ jobs:
       - set_pipeline: self
         file: pipelines/clusters/pipeline.yml
         var_files:
-          - kind-config/config
+          - vars/kube-vars.yml
           - credentials/credentials.yaml
       - put: kind-config
         params:
@@ -873,11 +873,11 @@ jobs:
         params:
           <<: *vsphere_env
           CLUSTER_NAME: jonquil
-          VSPHERE_TEMPLATE: centos-7-kube-v1.18.8
+          VSPHERE_TEMPLATE: centos-7-kube-v1.18.2
           CONTROL_PLANE_ENDPOINT_IP: 192.168.77.180
           CONTROL_PLANE_MACHINE_COUNT: 3
           WORKER_MACHINE_COUNT: 1
-          KUBERNETES_VERSION: 1.18.8
+          KUBERNETES_VERSION: 1.18.2
           NAMESPACE: default
           TEMPLATE_MEMORY: 32768
           TEMPLATE_DISK: 64
