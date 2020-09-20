@@ -330,9 +330,9 @@ jobs:
               output_file: kube-proxy-configmap.yaml
       - task: enable-kube-proxy-strict-arp
         config:
-          plaform: linux
+          platform: linux
           outputs:
-            - strict-arp-conf
+            - name: strict-arp-conf
           image_resource:
             type: docker-image
             source:
@@ -382,6 +382,7 @@ jobs:
                      command: create
                      command_args: generic --from-literal=secretkey=((.:memberlist-secret))
          - put: metallb
+
   - name: powerflex-sdc-init
     plan:
       - in_parallel:
