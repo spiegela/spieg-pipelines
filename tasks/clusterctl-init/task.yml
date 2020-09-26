@@ -30,5 +30,6 @@ run:
     - |
       set -e
       set -x
+      mkdir -p "$HOME/.cluster-api"
       chmod +x clusterctl/clusterctl-linux-amd64
       clusterctl/clusterctl-linux-amd64 init --infrastructure "${INFRASTRUCTURE}"
