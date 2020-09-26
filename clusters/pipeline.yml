@@ -907,9 +907,10 @@ jobs:
       - put: gamboge-cluster
         params:
           file: gamboge-cluster-yaml/cluster.yaml
+          kubeconfig_path: kind-config/config
+        get_params:
           wait: true
           wait_for: condition=ready
-          kubeconfig_path: kind-config/config
       - get: gamboge-kubeconfig-secret
         params:
           output: jsonpath='{.data.value}'
@@ -968,9 +969,10 @@ jobs:
       - put: jonquil-cluster
         params:
           file: jonquil-cluster-yaml/cluster.yaml
+          kubeconfig_path: kind-config/config
+        get_params:
           wait: true
           wait_for: condition=ready
-          kubeconfig_path: kind-config/config
       - get: jonquil-kubeconfig-secret
         params:
           output: jsonpath='{.data.value}'
