@@ -47,7 +47,7 @@ run:
 
       mkdir -p /root/.cluster-api
       chmod +x clusterctl/clusterctl-linux-amd64
-      clusterctl/clusterctl-linux-amd64 config cluster "${CLUSTER_NAME}" > cluster/cluster.yaml
+      clusterctl/clusterctl-linux-amd64 config cluster "${CLUSTER_NAME}" --kubernetes-version "${KUBERNETES_VERSION}" > cluster/cluster.yaml
 
       # Replace existing CIDR block with new
       cat >cluster_template_patch.yaml  <<EOL
