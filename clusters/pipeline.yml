@@ -910,7 +910,7 @@ jobs:
           kubeconfig_path: kind-config/config
         get_params:
           wait: true
-          wait_for: condition=ready
+          wait_for: '{.status.conditions[*].status}'
       - get: gamboge-kubeconfig-secret
         params:
           output: jsonpath='{.data.value}'
@@ -972,7 +972,7 @@ jobs:
           kubeconfig_path: kind-config/config
         get_params:
           wait: true
-          wait_for: condition=ready
+          wait_for: '{.status.conditions[*].status}'
       - get: jonquil-kubeconfig-secret
         params:
           output: jsonpath='{.data.value}'
