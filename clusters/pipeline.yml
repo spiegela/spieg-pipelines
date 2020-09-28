@@ -779,6 +779,19 @@ jobs:
           COMMAND: /usr/local/bin/kind
           ARGS: get kubeconfig
           OUTFILE: config
+      - put: kind-config
+        params:
+          file: kind-config/config
+
+  - name: set-kind-config-vars-to-pipeline
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: credentials
+          - get: kind-config
+            trigger: true
+            passed:
+              - kind-config
       - task: create-kubeconfig-vars
         file: pipelines/tasks/kubeconfig-to-vars/task.yml
         input_mapping:
@@ -788,9 +801,6 @@ jobs:
         var_files:
           - vars/kube-vars.yml
           - credentials/credentials.yaml
-      - put: kind-config
-        params:
-          file: kind-config/config
 
   - name: kind-clusterctl-init
     plan:
