@@ -342,7 +342,7 @@ jobs:
             path: /bin/ash
             args:
               - -c
-              - "sed -e 's|strictARP: false|strictARP: true|' < kube-proxy-configmap/config.conf > strict-arp-conf/kube-proxy-configmap.yaml"
+              - "sed -e 's|strictARP: false|strictARP: true|' < kube-proxy-configmap/kube-proxy-configmap.yaml > strict-arp-conf/kube-proxy-configmap.yaml"
       - put: kube-proxy-configmap
         params:
           file: strict-arp-conf/kube-proxy-configmap.yaml
