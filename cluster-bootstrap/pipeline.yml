@@ -278,7 +278,7 @@ jobs:
       - get: node-list
         params:
           wait: true
-          wait_for: '.status.conditions[?(@.type=="Ready")].status'
+          wait_for: '{.items[*].status.conditions[?(@.type=="Ready")].status}'
       - put: node-list
         params:
           command: annotate
