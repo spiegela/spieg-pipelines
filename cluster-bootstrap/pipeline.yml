@@ -311,8 +311,6 @@ jobs:
             passed:
               - remove-master-taints
       - put: metrics-server
-        params:
-          wait: true
 
   - name: metallb
     plan:
@@ -331,6 +329,8 @@ jobs:
       - task: enable-kube-proxy-strict-arp
         config:
           platform: linux
+          inputs:
+            - name: kube-proxy-configmap
           outputs:
             - name: strict-arp-conf
           image_resource:
