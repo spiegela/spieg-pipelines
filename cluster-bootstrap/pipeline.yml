@@ -437,31 +437,32 @@ jobs:
               params:
                 output: jsonpath='{.items[0].status.nodeInfo.kubeletVersion}'
                 output_file: version.txt
-            - task: k8s-newer-than-1.16
-              config:
-                platform: linux
-                image_resource:
-                  type: docker-image
-                  source:
-                    repository: alpine
-                    tag: latest
-                inputs:
-                  - name: node-list
-                run:
-                  path: /bin/ash
-                  args:
-                    - -c
-                    - |
-                      if [[ $DEBUG == "true" ]]; then
-                        set -x
-                      fi
-                      if [[ $(cat node-list/version.txt | cut -d"." -f2 | tr -d "\n") -gt 16 ]]; then
-                        echo "Kubernetes is older than 1.17, so we're not going to install the snapshotter CRDs."
-                        exit 1
-                      else
-                        echo "Kubernetes is 1.17 or newer, so we going to install the snapshotter CRDs."
-                        exit 0
-                      fi
+            - try:
+                task: k8s-newer-than-1.16
+                config:
+                  platform: linux
+                  image_resource:
+                    type: docker-image
+                    source:
+                      repository: alpine
+                      tag: latest
+                  inputs:
+                    - name: node-list
+                  run:
+                    path: /bin/ash
+                    args:
+                      - -c
+                      - |
+                        if [[ $DEBUG == "true" ]]; then
+                          set -x
+                        fi
+                        if [[ $(cat node-list/version.txt | cut -d"." -f2 | tr -d "\n") -gt 16 ]]; then
+                          echo "Kubernetes is older than 1.17, so we're not going to install the snapshotter CRDs."
+                          exit 1
+                        else
+                          echo "Kubernetes is 1.17 or newer, so we going to install the snapshotter CRDs."
+                          exit 0
+                        fi
             on_success:
               in_parallel:
                 - put: csi-snapshotclass-crd
