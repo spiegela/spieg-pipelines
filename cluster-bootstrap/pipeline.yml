@@ -96,7 +96,7 @@ resources:
     source:
       namespace: metallb-system
       objects:
-        - name: metallb-config
+        - name: config
           kind: ConfigMap
       <<: *k8s_env
 
