@@ -950,7 +950,7 @@ jobs:
           - vars/kube-vars.yml
         vars:
           cluster_name: gamboge
-          csi_branch: master
+          csi_branch: v0.1.2
           cluster_version: ((.:gamboge-version))
           s3: ((s3))
           git_token: ((git_token))
@@ -1013,7 +1013,7 @@ jobs:
           - vars/kube-vars.yml
         vars:
           cluster_name: jonquil
-          csi_branch: v0.1.2-pre
+          csi_branch: v0.1.2
           cluster_version: ((.:jonquil-version))
           s3: ((s3))
           git_token: ((git_token))
