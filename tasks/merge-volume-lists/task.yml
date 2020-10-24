@@ -1,0 +1,35 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: python
+    tag: latest
+
+params:
+  DEBUG:
+
+inputs:
+  - name: pipelines
+  - name: gamboge-volumes
+  - name: jonquil-volumes
+  - name: mikado-volumes
+
+outputs:
+  - name: output
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      if [[ $DEBUG == true ]]; then
+        set -x
+      fi
+
+      mkdir all-volumes-json
+      python pipelines/tasks/merge-volume-lists/merge-volume-lists.py all-volumes-json *-volumes/volumes.json
+      tar czfvp output/all-volumes.tgz all-volumes-json
+
+      exit 0

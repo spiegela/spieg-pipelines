@@ -38,7 +38,7 @@ resource_types:
   - name: kubernetes-object
     type: docker-image
     source:
-        repository: spiegela/concourse-kubernetes-resource
+        repository: spiegela/concourse-kubernetes
         tag: latest
 
 resources:
@@ -138,6 +138,7 @@ resources:
   - name: jonquil-cluster-yaml
     type: s3
     source:
+      tracing_enabled: true
       versioned_file: ClusterAPI/jonquil/cluster.yaml
       <<: *s3_env
 
@@ -152,6 +153,7 @@ resources:
   - name: gamboge-cluster
     type: kubernetes-object
     source:
+      tracing_enabled: true
       objects:
         - name: gamboge
           kind: Cluster
