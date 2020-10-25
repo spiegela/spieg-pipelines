@@ -28,12 +28,6 @@ vsphere_env: &vsphere_env
   VSPHERE_FOLDER: ClusterAPI
   EXP_CLUSTER_RESOURCE_SET: "true"
 
-k8s_env: &k8s_env
-  cluster_url: ((cluster_url))
-  cluster_ca: ((cluster_ca))
-  admin_key: ((admin_key))
-  admin_cert: ((admin_cert))
-
 resource_types:
   - name: kubernetes-object
     type: docker-image
@@ -50,46 +44,25 @@ resources:
       branch: master
       private_key: ((private_key))
 
-  - name: kube-template-v1.16.x
+  - name: credentials
     type: s3
-    icon: file-multiple-outline
+    icon: file-key-outline
     source:
-      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.16.9).ova
+      versioned_file: ClusterAPI/credentials.yaml
       <<: *s3_env
 
-  - name: kube-template-v1.17.x
+  - name: capi-config
     type: s3
-    icon: file-multiple-outline
+    icon: key-variant
     source:
-      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.17.5).ova
+      versioned_file: ClusterAPI/kind/config
       <<: *s3_env
 
-  - name: kube-template-v1.18.x
-    type: s3
-    icon: file-multiple-outline
+  - name: capi-version
+    type: semver
+    icon: surround-sound-2-0
     source:
-      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.18.2).ova
-      <<: *s3_env
-
-  - name: kube-template-v1.19.x
-    type: s3
-    icon: file-multiple-outline
-    source:
-      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.19.1).ova
-      <<: *s3_env
-
-  - name: kube-template-info-v1.16.x
-    type: s3
-    icon: file-code-outline
-    source:
-      versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.16.x.json
-      <<: *s3_env
-
-  - name: kube-template-info-v1.17.x
-    type: s3
-    icon: file-code-outline
-    source:
-      versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.17.x.json
+      key: ClusterAPI/kind/version
       <<: *s3_env
 
   - name: kube-template-info-v1.18.x
@@ -104,34 +77,6 @@ resources:
     icon: file-code-outline
     source:
       versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.19.x.json
-      <<: *s3_env
-
-  - name: credentials
-    type: s3
-    icon: file-key-outline
-    source:
-      versioned_file: ClusterAPI/credentials.yaml
-      <<: *s3_env
-
-  - name: kind-config
-    type: s3
-    icon: key-variant
-    source:
-      versioned_file: ClusterAPI/kind/config
-      <<: *s3_env
-
-  - name: kind-ip-address
-    type: s3
-    icon: ip-network-outline
-    source:
-      versioned_file: ClusterAPI/kind/ip-address
-      <<: *s3_env
-
-  - name: kind-cluster-yaml
-    type: s3
-    icon: code-json
-    source:
-      versioned_file: ClusterAPI/kind/cluster.yaml
       <<: *s3_env
 
   - name: clusterctl-release
@@ -154,7 +99,6 @@ resources:
     type: s3
     icon: code-json
     source:
-      tracing_enabled: true
       versioned_file: ClusterAPI/jonquil/cluster.yaml
       <<: *s3_env
 
@@ -162,38 +106,37 @@ resources:
     type: kubernetes-object
     icon: kubernetes
     source:
+      kubeconfig: ((capi-config))
       objects:
         - name: jonquil
           kind: Cluster
-      <<: *k8s_env
 
   - name: gamboge-cluster
     type: kubernetes-object
     icon: kubernetes
     source:
-      tracing_enabled: true
+      kubeconfig: ((capi-config))
       objects:
         - name: gamboge
           kind: Cluster
-      <<: *k8s_env
 
   - name: jonquil-kubeconfig-secret
     type: kubernetes-object
     icon: key
     source:
+      kubeconfig: ((capi-config))
       objects:
         - name: jonquil-kubeconfig
           kind: Secret
-      <<: *k8s_env
 
   - name: gamboge-kubeconfig-secret
     type: kubernetes-object
     icon: key
     source:
+      kubeconfig: ((capi-config))
       objects:
         - name: gamboge-kubeconfig
           kind: Secret
-      <<: *k8s_env
 
   - name: gamboge-config
     type: s3
@@ -239,646 +182,40 @@ resources:
 
 jobs:
 
-  - name: kube-templates-1.16.x
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: kube-template-v1.16.x
-            trigger: true
-      - try:
-          task: check-previous
-          file: pipelines/tasks/vm-exists/task.yml
-          params:
-            <<: *govc_env
-            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.16.9
-          on_success:
-            task: delete-previous
-            file: pipelines/tasks/govc-cmd/task.yml
-            params:
-              <<: *govc_env
-              COMMAND: vm.destroy
-              ARGS: centos-7-kube-v1.16.9
-      - task: import-ova-spec
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          files: kube-template-v1.16.x
-        output_mapping:
-          output: ova-spec
-        params:
-          <<: *govc_env
-          COMMAND: import.spec
-          ARGS: files/centos-7-kube-v1.16.9.ova
-      - task: configure-ova-network
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: cincan/jq
-              tag: latest
-          inputs:
-            - name: ova-spec
-          outputs:
-            - name: configured-ova-spec
-          run:
-            path: /bin/ash
-            args:
-              - -c
-              - |
-                if [[ $DEBUG == "true" ]]; then
-                  set -x
-                fi
-                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
-      - task: import-ova
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: pivotalgreenhouse/govc
-              tag: latest
-          inputs:
-            - name: configured-ova-spec
-            - name: kube-template-v1.16.x
-          params:
-            <<: *govc_env
-          run:
-            path: /bin/bash
-            args:
-              - -c
-              - |
-                if [[ $DEBUG == true ]]; then
-                  set -x
-                fi
-                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.16.x/centos-7-kube-v1.16.9.ova
-      - task: templatize
-        file: pipelines/tasks/govc-cmd/task.yml
-        params:
-          <<: *govc_env
-          COMMAND: vm.markastemplate
-          ARGS: centos-7-kube-v1.16.9
-      - task: get-info
-        file: pipelines/tasks/govc-cmd/task.yml
-        output_mapping:
-          output: vm-info
-        params:
-          <<: *govc_env
-          COMMAND: vm.info
-          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.16.9
-      - put: kube-template-info-v1.16.x
-        params:
-          file: vm-info/govc-cmd.out
-
-  - name: kube-templates-1.17.x
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: kube-template-v1.17.x
-            trigger: true
-      - try:
-          task: check-previous
-          file: pipelines/tasks/vm-exists/task.yml
-          params:
-            <<: *govc_env
-            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.17.5
-          on_success:
-            task: delete-previous
-            file: pipelines/tasks/govc-cmd/task.yml
-            params:
-              <<: *govc_env
-              COMMAND: vm.destroy
-              ARGS: centos-7-kube-v1.17.5
-      - task: import-ova-spec
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          files: kube-template-v1.17.x
-        output_mapping:
-          output: ova-spec
-        params:
-          <<: *govc_env
-          COMMAND: import.spec
-          ARGS: files/centos-7-kube-v1.17.5.ova
-      - task: configure-ova-network
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: cincan/jq
-              tag: latest
-          inputs:
-            - name: ova-spec
-          outputs:
-            - name: configured-ova-spec
-          run:
-            path: /bin/ash
-            args:
-              - -c
-              - |
-                if [[ $DEBUG == "true" ]]; then
-                  set -x
-                fi
-                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
-      - task: import-ova
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: pivotalgreenhouse/govc
-              tag: latest
-          inputs:
-            - name: configured-ova-spec
-            - name: kube-template-v1.17.x
-          params:
-            <<: *govc_env
-          run:
-            path: /bin/bash
-            args:
-              - -c
-              - |
-                if [[ $DEBUG == true ]]; then
-                  set -x
-                fi
-                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.17.x/centos-7-kube-v1.17.5.ova
-      - task: templatize
-        file: pipelines/tasks/govc-cmd/task.yml
-        params:
-          <<: *govc_env
-          COMMAND: vm.markastemplate
-          ARGS: centos-7-kube-v1.17.5
-      - task: get-info
-        file: pipelines/tasks/govc-cmd/task.yml
-        output_mapping:
-          output: vm-info
-        params:
-          <<: *govc_env
-          COMMAND: vm.info
-          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.17.5
-      - put: kube-template-info-v1.17.x
-        params:
-          file: vm-info/govc-cmd.out
-
-  - name: kube-templates-1.18.x
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: kube-template-v1.18.x
-            trigger: true
-      - try:
-          task: check-previous
-          file: pipelines/tasks/vm-exists/task.yml
-          params:
-            <<: *govc_env
-            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.18.2
-          on_success:
-            task: delete-previous
-            file: pipelines/tasks/govc-cmd/task.yml
-            params:
-              <<: *govc_env
-              COMMAND: vm.destroy
-              ARGS: centos-7-kube-v1.18.2
-      - task: import-ova-spec
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          files: kube-template-v1.18.x
-        output_mapping:
-          output: ova-spec
-        params:
-          <<: *govc_env
-          COMMAND: import.spec
-          ARGS: files/centos-7-kube-v1.18.2.ova
-      - task: configure-ova-network
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: cincan/jq
-              tag: latest
-          inputs:
-            - name: ova-spec
-          outputs:
-            - name: configured-ova-spec
-          run:
-            path: /bin/ash
-            args:
-              - -c
-              - |
-                if [[ $DEBUG == "true" ]]; then
-                  set -x
-                fi
-                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
-      - task: import-ova
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: pivotalgreenhouse/govc
-              tag: latest
-          inputs:
-            - name: configured-ova-spec
-            - name: kube-template-v1.18.x
-          params:
-            <<: *govc_env
-          run:
-            path: /bin/bash
-            args:
-              - -c
-              - |
-                if [[ $DEBUG == true ]]; then
-                  set -x
-                fi
-                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.18.x/centos-7-kube-v1.18.2.ova
-      - task: templatize
-        file: pipelines/tasks/govc-cmd/task.yml
-        params:
-          <<: *govc_env
-          COMMAND: vm.markastemplate
-          ARGS: centos-7-kube-v1.18.2
-      - task: get-info
-        file: pipelines/tasks/govc-cmd/task.yml
-        output_mapping:
-          output: vm-info
-        params:
-          <<: *govc_env
-          COMMAND: vm.info
-          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.18.2
-      - put: kube-template-info-v1.18.x
-        params:
-          file: vm-info/govc-cmd.out
-
-  - name: kube-templates-1.19.x
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: kube-template-v1.19.x
-            trigger: true
-      - try:
-          task: check-previous
-          file: pipelines/tasks/vm-exists/task.yml
-          params:
-            <<: *govc_env
-            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.19.1
-          on_success:
-            task: delete-previous
-            file: pipelines/tasks/govc-cmd/task.yml
-            params:
-              <<: *govc_env
-              COMMAND: vm.destroy
-              ARGS: centos-7-kube-v1.19.1
-      - task: check-previous
-        file: pipelines/tasks/skip-unless-vm-exists/task.yml
-        output_mapping:
-          vm-exists: delete-conditions
-        params:
-          <<: *govc_env
-          VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.19.1
-      - task: delete-previous
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          conditions: delete-conditions
-        params:
-          <<: *govc_env
-          COMMAND: vm.destroy
-          ARGS: centos-7-kube-v1.19.1
-      - task: import-ova-spec
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          files: kube-template-v1.19.x
-        output_mapping:
-          output: ova-spec
-        params:
-          <<: *govc_env
-          COMMAND: import.spec
-          ARGS: files/centos-7-kube-v1.19.1.ova
-      - task: configure-ova-network
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: cincan/jq
-              tag: latest
-          inputs:
-            - name: ova-spec
-          outputs:
-            - name: configured-ova-spec
-          run:
-            path: /bin/ash
-            args:
-              - -c
-              - |
-                if [[ $DEBUG == "true" ]]; then
-                  set -x
-                fi
-                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
-      - task: import-ova
-        config:
-          platform: linux
-          image_resource:
-            type: docker-image
-            source:
-              repository: pivotalgreenhouse/govc
-              tag: latest
-          inputs:
-            - name: configured-ova-spec
-            - name: kube-template-v1.19.x
-          params:
-            <<: *govc_env
-          run:
-            path: /bin/bash
-            args:
-              - -c
-              - |
-                if [[ $DEBUG == true ]]; then
-                  set -x
-                fi
-                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.19.x/centos-7-kube-v1.19.1.ova
-      - task: templatize
-        file: pipelines/tasks/govc-cmd/task.yml
-        params:
-          <<: *govc_env
-          COMMAND: vm.markastemplate
-          ARGS: centos-7-kube-v1.19.1
-      - task: get-info
-        file: pipelines/tasks/govc-cmd/task.yml
-        output_mapping:
-          output: vm-info
-        params:
-          <<: *govc_env
-          COMMAND: vm.info
-          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.19.1
-      - put: kube-template-info-v1.19.x
-        params:
-          file: vm-info/govc-cmd.out
-
-  - name: kind-vm
-    plan:
-      - get: pipelines
-      - task: check-previous
-        file: pipelines/tasks/skip-unless-vm-exists/task.yml
-        output_mapping:
-          vm-exists: delete-conditions
-        params:
-          <<: *govc_env
-          VM: /Datacenter/vm/ClusterAPI/capi-kind
-      - task: delete-previous
-        file: pipelines/tasks/govc-cmd/task.yml
-        input_mapping:
-          conditions: delete-conditions
-        params:
-          <<: *govc_env
-          COMMAND: vm.destroy
-          ARGS: capi-kind
-      - task: clone-from-template
-        file: pipelines/tasks/govc-cmd/task.yml
-        params:
-          <<: *govc_env
-          COMMAND: vm.clone
-          ARGS: -on=true -link=true -waitip=true -vm ubuntu-20.04-template -folder ClusterAPI capi-kind
-      - task: wait-for-address
-        file: pipelines/tasks/wait-for-vm-address/task.yml
-        output_mapping:
-          output: vm-info
-        params:
-          <<: *govc_env
-          VM: /Datacenter/vm/ClusterAPI/capi-kind
-      - task: install-docker-repo-deps
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: vm-info
-        params:
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: sudo
-          ARGS: apt install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
-      - task: get-gpg-key
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: vm-info
-        params:
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: curl
-          ARGS: -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-      - task: create-docker-repo
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: vm-info
-        params:
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: sudo
-          ARGS: add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-      - task: update-apt-cache
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: vm-info
-        params:
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: sudo
-          ARGS: apt update
-      - task: install-docker
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: vm-info
-        params:
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: sudo
-          ARGS: apt install -y docker-ce docker-ce-cli containerd.io
-      - task: add-user-to-docker-group
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: vm-info
-        params:
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: sudo
-          ARGS: adduser spiegela docker
-      - put: kind-ip-address
-        params:
-          file: vm-info/ip-address
-
-  - name: kind-config
-    plan:
-      - in_parallel:
-        - get: pipelines
-        - get: credentials
-        - get: kind-ip-address
-          trigger: true
-          passed:
-            - kind-vm
-        - get: kind-cluster-yaml
-          trigger: true
-      - in_parallel:
-        - task: configure-kind-cluster
-          config:
-            platform: linux
-            image_resource:
-              type: docker-image
-              source:
-                repository: alpine
-                tag: latest
-            inputs:
-              - name: kind-cluster-yaml
-              - name: kind-ip-address
-            outputs:
-              - name: final-cluster-yaml
-            run:
-              path: /bin/ash
-              args:
-                - -c
-                - |
-                  if [[ $DEBUG == "true" ]]; then
-                    set -x
-                  fi
-                  echo "🌍 Making kind api server accessible on external IP: ${REAL_IP}"
-                  REAL_IP=$(cat kind-ip-address/ip-address)
-                  sed -e "s|KIND_IP_ADDRESS|$REAL_IP|" kind-cluster-yaml/cluster.yaml > final-cluster-yaml/cluster.yaml
-
-                  echo "🛡 Adding mulitple nodes for HA Kind cluster"
-                  cat <<EOF >> final-cluster-yaml/cluster.yaml
-                  nodes:
-                    - role: control-plane
-                    - role: control-plane
-                    - role: control-plane
-                  EOF
-        - task: download-kind
-          file: pipelines/tasks/ssh-exec/task.yml
-          input_mapping:
-            connection: kind-ip-address
-          params:
-            PRIVATE_KEY: ((private_key))
-            USERNAME: spiegela
-            COMMAND: curl
-            ARGS: -Lo ./kind https://kind.sigs.k8s.io/dl/v0.8.1/kind-linux-amd64
-      - in_parallel:
-        - task: copy-cluster-yaml-to-kind
-          file: pipelines/tasks/scp-file/task.yml
-          input_mapping:
-            connection: kind-ip-address
-            files: final-cluster-yaml
-          params:
-            PRIVATE_KEY: ((private_key))
-            USERNAME: spiegela
-            SOURCE: files/cluster.yaml
-            DEST: ~/cluster.yaml
-        - task: chmod-kind
-          file: pipelines/tasks/ssh-exec/task.yml
-          input_mapping:
-            connection: kind-ip-address
-          params:
-            PRIVATE_KEY: ((private_key))
-            USERNAME: spiegela
-            COMMAND: chmod
-            ARGS: +x ./kind
-      - task: install-kind
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: kind-ip-address
-        params:
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: sudo
-          ARGS: mv ./kind /usr/local/bin
-      - try:
-          task: delete-kind-cluster-if-exists
-          file: pipelines/tasks/ssh-exec/task.yml
-          input_mapping:
-            connection: kind-ip-address
-          params:
-            PRIVATE_KEY: ((private_key))
-            USERNAME: spiegela
-            COMMAND: /usr/local/bin/kind
-            ARGS: delete cluster
-      - task: create-kind-cluster
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: kind-ip-address
-        params:
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: /usr/local/bin/kind
-          ARGS: create cluster --config=cluster.yaml
-      - task: get-kind-config
-        file: pipelines/tasks/ssh-exec/task.yml
-        input_mapping:
-          connection: kind-ip-address
-        output_mapping:
-          output: kind-config
-        params:
-          PRIVATE_KEY: ((private_key))
-          USERNAME: spiegela
-          COMMAND: /usr/local/bin/kind
-          ARGS: get kubeconfig
-          OUTFILE: config
-      - put: kind-config
-        params:
-          file: kind-config/config
-
-  - name: set-kind-config-vars-to-pipeline
+  - name: load-config-vars
     plan:
       - in_parallel:
           - get: pipelines
           - get: credentials
-          - get: kind-config
+          - get: capi-config
             trigger: true
-            passed:
-              - kind-config
-      - task: create-kubeconfig-vars
-        file: pipelines/tasks/kubeconfig-to-vars/task.yml
-        input_mapping:
-          kubeconfig: kind-config
+      - load_var: loaded-capi-config
+        file: capi-config/config
       - set_pipeline: self
         file: pipelines/clusters/pipeline.yml
+        vars:
+          capi-config: ((.:loaded-capi-config))
         var_files:
-          - vars/kube-vars.yml
           - credentials/credentials.yaml
-
-  - name: kind-clusterctl-init
-    plan:
-      - in_parallel:
-          - get: pipelines
-          - get: kind-config
-            trigger: true
-            passed:
-              - kind-config
-          - get: clusterctl-release
-            trigger: true
-      - try:
-          task: clusterctl-init
-          file: pipelines/tasks/clusterctl-init/task.yml
-          input_mapping:
-            clusterctl: clusterctl-release
-            config: kind-config
-          params:
-            <<: *vsphere_env
-            INFRASTRUCTURE: vsphere:v0.7.0
 
   - name: gamboge-cluster-yaml
     plan:
       - in_parallel:
+          - get: capi-version
+            trigger: true
           - get: pipelines
             trigger: true
-          - get: kube-template-info-v1.16.x
+          - get: kube-template-info-v1.19.x
             trigger: true
-            passed:
-              - kube-templates-1.16.x
-          - get: kind-config
+          - get: capi-config
             trigger: true
-            passed:
-              - kind-clusterctl-init
           - get: clusterctl-release
             trigger: true
       - task: generate-cluster-yaml
         file: pipelines/tasks/vsphere-cluster-config/task.yml
         input_mapping:
           clusterctl: clusterctl-release
-          config: kind-config
+          config: capi-config
         params:
           <<: *vsphere_env
           GITHUB_TOKEN: ((git_token))
@@ -901,23 +238,21 @@ jobs:
   - name: jonquil-cluster-yaml
     plan:
       - in_parallel:
+          - get: capi-version
+            trigger: true
           - get: pipelines
             trigger: true
           - get: kube-template-info-v1.18.x
             trigger: true
-            passed:
-              - kube-templates-1.18.x
-          - get: kind-config
+          - get: capi-config
             trigger: true
-            passed:
-              - kind-clusterctl-init
           - get: clusterctl-release
             trigger: true
       - task: generate-cluster-yaml
         file: pipelines/tasks/vsphere-cluster-config/task.yml
         input_mapping:
           clusterctl: clusterctl-release
-          config: kind-config
+          config: capi-config
         params:
           <<: *vsphere_env
           GITHUB_TOKEN: ((git_token))
@@ -944,9 +279,7 @@ jobs:
       - in_parallel:
           - get: pipelines
           - get: clusterctl-release
-          - get: kind-config
-            passed:
-              - kind-clusterctl-init
+          - get: capi-config
           - get: gamboge-cluster-yaml
             trigger: true
             passed:
@@ -954,7 +287,6 @@ jobs:
       - put: gamboge-cluster
         params:
           file: gamboge-cluster-yaml/cluster.yaml
-          kubeconfig_path: kind-config/config
         get_params:
           wait: true
           wait_for: '{.status.conditions[*].status}'
@@ -963,7 +295,6 @@ jobs:
         params:
           output: jsonpath='{.data.value}'
           output_file: config.base64
-          kubeconfig_path: kind-config/config
       - task: decode-secret
         file: pipelines/tasks/base64/task.yml
         output_mapping:
@@ -973,19 +304,18 @@ jobs:
         params:
           IN: config.base64
           OUT: config
-      - task: create-kubeconfig-vars
-        file: pipelines/tasks/kubeconfig-to-vars/task.yml
       - get: gamboge-version
         params:
           bump: patch
           file: version
+      - load_var: gamboge-kubeconfig-loaded
+        file: kubeconfig/config
       - load_var: gamboge-version
         file: gamboge-version/version
       - set_pipeline: gamboge-bootstrap
         file: pipelines/cluster-bootstrap/pipeline.yml
-        var_files:
-          - vars/kube-vars.yml
         vars:
+          kubeconfig: ((.:gamboge-kubeconfig-loaded))
           cluster_name: gamboge
           csi_branch: v0.1.2
           cluster_version: ((.:gamboge-version))
@@ -1007,9 +337,6 @@ jobs:
       - in_parallel:
           - get: pipelines
           - get: clusterctl-release
-          - get: kind-config
-            passed:
-              - kind-clusterctl-init
           - get: jonquil-cluster-yaml
             trigger: true
             passed:
@@ -1017,7 +344,6 @@ jobs:
       - put: jonquil-cluster
         params:
           file: jonquil-cluster-yaml/cluster.yaml
-          kubeconfig_path: kind-config/config
         get_params:
           wait: true
           wait_for: '{.status.conditions[*].status}'
@@ -1026,7 +352,6 @@ jobs:
         params:
           output: jsonpath='{.data.value}'
           output_file: config.base64
-          kubeconfig_path: kind-config/config
       - task: decode-secret
         file: pipelines/tasks/base64/task.yml
         output_mapping:
@@ -1036,19 +361,18 @@ jobs:
         params:
           IN: config.base64
           OUT: config
-      - task: create-kubeconfig-vars
-        file: pipelines/tasks/kubeconfig-to-vars/task.yml
       - get: jonquil-version
         params:
           bump: patch
           file: version
+      - load_var: jonquil-kubeconfig-loaded
+        file: kubeconfig/config
       - load_var: jonquil-version
         file: jonquil-version/version
       - set_pipeline: jonquil-bootstrap
         file: pipelines/cluster-bootstrap/pipeline.yml
-        var_files:
-          - vars/kube-vars.yml
         vars:
+          kubeconfig: ((.:jonquil-kubeconfig-loaded))
           cluster_name: jonquil
           csi_branch: v0.1.2
           cluster_version: ((.:jonquil-version))
@@ -1068,10 +392,8 @@ jobs:
       - in_parallel:
           - get: base-config
             trigger: true
-          - get: kind-config
+          - get: capi-config
             trigger: true
-            passed:
-              - kind-clusterctl-init
           - get: jonquil-config
             trigger: true
             passed:
@@ -1090,7 +412,7 @@ jobs:
               tag: 1.19.1
           inputs:
             - name: base-config
-            - name: kind-config
+            - name: capi-config
             - name: jonquil-config
             - name: gamboge-config
           outputs:
@@ -1100,7 +422,7 @@ jobs:
             args:
               - -c
               - |
-                KUBECONFIG=base-config/base-kubeconfig.yaml:kind-config/config:jonquil-config/config:gamboge-config/config kubectl config view --merge --flatten > \
+                KUBECONFIG=base-config/base-kubeconfig.yaml:capi-config/config:jonquil-config/config:gamboge-config/config kubectl config view --merge --flatten > \
                   merged/config
       - put: merged-config
         params:
