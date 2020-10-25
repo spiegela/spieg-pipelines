@@ -5,12 +5,6 @@ s3_env: &s3_env
   access_key_id: ((s3.access_key))
   secret_access_key: ((s3.secret_key))
 
-k8s_env: &k8s_env
-  cluster_url: ((cluster_url))
-  cluster_ca: ((cluster_ca))
-  admin_key: ((admin_key))
-  admin_cert: ((admin_cert))
-
 resource_types:
   - name: helm-release
     type: docker-image
@@ -44,43 +38,43 @@ resources:
     type: kubernetes-object
     icon: network
     source:
+      kubeconfig: ((kubeconfig))
       namespae: kube-system
       url: https://docs.projectcalico.org/manifests/calico.yaml
-      <<: *k8s_env
 
   - name: powerflex-system-namespace
     type: kubernetes-object
     icon: folder-table-outline
     source:
+      kubeconfig: ((kubeconfig))
       objects:
         - name: powerflex-system
           kind: Namespace
-      <<: *k8s_env
 
   - name: metrics-server
     type: kubernetes-object
     icon: gauge
     source:
+      kubeconfig: ((kubeconfig))
       namespace: kube-system
       url: https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.3.7/components.yaml
-      <<: *k8s_env
 
   - name: kube-proxy-configmap
     type: kubernetes-object
     icon: plus-network-outline
     source:
+      kubeconfig: ((kubeconfig))
       namespace: kube-system
       objects:
         - kind: ConfigMap
           name: kube-proxy
-      <<: *k8s_env
 
   - name: metallb-system-namespace
     type: kubernetes-object
     icon: folder-table-outline
     source:
+      kubeconfig: ((kubeconfig))
       url: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
-      <<: *k8s_env
 
   - name: metallb-configmap-template
     type: s3
@@ -94,29 +88,29 @@ resources:
     type: kubernetes-object
     icon: key-variant
     source:
+      kubeconfig: ((kubeconfig))
       namespace: metallb-system
       objects:
         - name: memberlist
           kind: Secret
-      <<: *k8s_env
 
   - name: metallb-configmap
     type: kubernetes-object
     icon: plus-network-outline
     source:
+      kubeconfig: ((kubeconfig))
       namespace: metallb-system
       objects:
         - name: config
           kind: ConfigMap
-      <<: *k8s_env
 
   - name: metallb
     type: kubernetes-object
     icon: router-network
     source:
+      kubeconfig: ((kubeconfig))
       namespace: metallb-system
       url: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
-      <<: *k8s_env
 
   - name: powerflex-secret-template
     type: s3
@@ -136,11 +130,11 @@ resources:
     type: kubernetes-object
     icon: key-variant
     source:
+      kubeconfig: ((kubeconfig))
       namespace: powerflex-system
       objects:
         - name: csi-creds
           kind: Secret
-      <<: *k8s_env
 
   - name: registry-secret-template
     type: s3
@@ -153,11 +147,11 @@ resources:
     type: kubernetes-object
     icon: key-variant
     source:
+      kubeconfig: ((kubeconfig))
       objects:
         - name: dockerhub-registry
           kind: Secret
       namespace: powerflex-system
-      <<: *k8s_env
 
   - name: powerflex-sdc-init-values
     type: s3
@@ -193,38 +187,38 @@ resources:
     type: helm-release
     icon: kubernetes
     source:
+      kubeconfig: ((kubeconfig))
       release: sdc-init
       namespace: powerflex-system
-      <<: *k8s_env
 
   - name: csi-snapshotclass-crd
     type: kubernetes-object
     icon: shape
     source:
+      kubeconfig: ((kubeconfig))
       url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
-      <<: *k8s_env
 
   - name: csi-snapshotcontent-crd
     type: kubernetes-object
     icon: shape
     source:
+      kubeconfig: ((kubeconfig))
       url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
-      <<: *k8s_env
 
   - name: csi-snapshot-crd
     type: kubernetes-object
     icon: shape
     source:
+      kubeconfig: ((kubeconfig))
       url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
-      <<: *k8s_env
 
   - name: csi-powerflex-release
     type: helm-release
     icon: kubernetes
     source:
+      kubeconfig: ((kubeconfig))
       release: csi
       namespace: powerflex-system
-      <<: *k8s_env
 
   - name: traefik-values
     type: s3
@@ -237,35 +231,35 @@ resources:
     type: helm-release
     icon: kubernetes
     source:
+      kubeconfig: ((kubeconfig))
       release: traefik
       namespace: traefik-system
-      <<: *k8s_env
 
   - name: cert-manager-release
     type: helm-release
     icon: kubernetes
     source:
+      kubeconfig: ((kubeconfig))
       release: cert-manager
       namespace: cert-manager
       repos:
         - name: jetstack
           url: https://charts.jetstack.io
-      <<: *k8s_env
 
   - name: node-list
     type: kubernetes-object
     icon: server
     source:
+      kubeconfig: ((kubeconfig))
       list: nodes
-      <<: *k8s_env
 
   - name: cert-manager-crds
     type: kubernetes-object
     icon: shape
     source:
+      kubeconfig: ((kubeconfig))
       namespace: cert-manager
       url: https://github.com/jetstack/cert-manager/releases/download/v0.16.1/cert-manager.crds.yaml
-      <<: *k8s_env
 
   - name: letsencrypt-issuers-template
     type: s3
@@ -278,31 +272,31 @@ resources:
     type: kubernetes-object
     icon: kubernetes
     source:
+      kubeconfig: ((kubeconfig))
       namespace: cert-manager
       objects:
         - name: letsencrypt-prod
           kind: ClusterIssuer
         - name: letsencrypt-staging
           kind: ClusterIssuer
-      <<: *k8s_env
 
   - name: helm-operator-crds
     type: kubernetes-object
     icon: shape
     source:
+      kubeconfig: ((kubeconfig))
       url: https://raw.githubusercontent.com/fluxcd/helm-operator/master/deploy/crds.yaml
-      <<: *k8s_env
 
   - name: helm-operator-release
     type: helm-release
     icon: kubernetes
     source:
+      kubeconfig: ((kubeconfig))
       release: helm-operator
       namespace: fluxcd-system
       repos:
         - name: fluxcd
           url: https://charts.fluxcd.io
-      <<: *k8s_env
 
 jobs:
 

@@ -1,0 +1,471 @@
+---
+govc_env: &govc_env
+  GOVC_INSECURE: "true"
+  GOVC_URL: https://((vsphere.server))/sdk
+  GOVC_USERNAME: ((vsphere.user))
+  GOVC_PASSWORD: ((vsphere.password))
+  GOVC_DATACENTER: Datacenter
+  GOVC_DATASTORE: Datastore 1
+  GOVC_NETWORK: VM Network
+  GOVC_RESOURCE_POOL: ClusterAPI
+  DEBUG: "false"
+
+s3_env: &s3_env
+  bucket: concourse
+  endpoint: ((s3.endpoint))
+  access_key_id: ((s3.access_key))
+  secret_access_key: ((s3.secret_key))
+
+vsphere_env: &vsphere_env
+  VSPHERE_USERNAME: ((vsphere.user))
+  VSPHERE_PASSWORD: ((vsphere.password))
+  VSPHERE_DATACENTER: Datacenter
+  VSPHERE_DATASTORE: Datastore 1
+  VSPHERE_NETWORK: VM Network
+  VSPHERE_SERVER: ((vsphere.server))
+  VSPHERE_SSH_AUTHORIZED_KEY: ((ssh_authorized_key))
+  VSPHERE_RESOURCE_POOL: ClusterAPI
+  VSPHERE_FOLDER: ClusterAPI
+  EXP_CLUSTER_RESOURCE_SET: "true"
+
+resources:
+  - name: pipelines
+    type: git
+    icon: concourse-ci
+    source:
+      uri: git@github.com:spiegela/spieg-pipelines.git
+      branch: master
+      private_key: ((private_key))
+
+  - name: kube-template-v1.16.x
+    type: s3
+    icon: file-multiple-outline
+    source:
+      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.16.9).ova
+      <<: *s3_env
+
+  - name: kube-template-v1.17.x
+    type: s3
+    icon: file-multiple-outline
+    source:
+      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.17.5).ova
+      <<: *s3_env
+
+  - name: kube-template-v1.18.x
+    type: s3
+    icon: file-multiple-outline
+    source:
+      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.18.2).ova
+      <<: *s3_env
+
+  - name: kube-template-v1.19.x
+    type: s3
+    icon: file-multiple-outline
+    source:
+      regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.19.1).ova
+      <<: *s3_env
+
+  - name: kube-template-info-v1.16.x
+    type: s3
+    icon: file-code-outline
+    source:
+      versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.16.x.json
+      <<: *s3_env
+
+  - name: kube-template-info-v1.17.x
+    type: s3
+    icon: file-code-outline
+    source:
+      versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.17.x.json
+      <<: *s3_env
+
+  - name: kube-template-info-v1.18.x
+    type: s3
+    icon: file-code-outline
+    source:
+      versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.18.x.json
+      <<: *s3_env
+
+  - name: kube-template-info-v1.19.x
+    type: s3
+    icon: file-code-outline
+    source:
+      versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.19.x.json
+      <<: *s3_env
+
+jobs:
+
+  - name: kube-templates-1.16.x
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: kube-template-v1.16.x
+            trigger: true
+      - try:
+          task: check-previous
+          file: pipelines/tasks/vm-exists/task.yml
+          params:
+            <<: *govc_env
+            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.16.9
+          on_success:
+            task: delete-previous
+            file: pipelines/tasks/govc-cmd/task.yml
+            params:
+              <<: *govc_env
+              COMMAND: vm.destroy
+              ARGS: centos-7-kube-v1.16.9
+      - task: import-ova-spec
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          files: kube-template-v1.16.x
+        output_mapping:
+          output: ova-spec
+        params:
+          <<: *govc_env
+          COMMAND: import.spec
+          ARGS: files/centos-7-kube-v1.16.9.ova
+      - task: configure-ova-network
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: cincan/jq
+              tag: latest
+          inputs:
+            - name: ova-spec
+          outputs:
+            - name: configured-ova-spec
+          run:
+            path: /bin/ash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == "true" ]]; then
+                  set -x
+                fi
+                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
+      - task: import-ova
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: pivotalgreenhouse/govc
+              tag: latest
+          inputs:
+            - name: configured-ova-spec
+            - name: kube-template-v1.16.x
+          params:
+            <<: *govc_env
+          run:
+            path: /bin/bash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == true ]]; then
+                  set -x
+                fi
+                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.16.x/centos-7-kube-v1.16.9.ova
+      - task: templatize
+        file: pipelines/tasks/govc-cmd/task.yml
+        params:
+          <<: *govc_env
+          COMMAND: vm.markastemplate
+          ARGS: centos-7-kube-v1.16.9
+      - task: get-info
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: vm-info
+        params:
+          <<: *govc_env
+          COMMAND: vm.info
+          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.16.9
+      - put: kube-template-info-v1.16.x
+        params:
+          file: vm-info/govc-cmd.out
+
+  - name: kube-templates-1.17.x
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: kube-template-v1.17.x
+            trigger: true
+      - try:
+          task: check-previous
+          file: pipelines/tasks/vm-exists/task.yml
+          params:
+            <<: *govc_env
+            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.17.5
+          on_success:
+            task: delete-previous
+            file: pipelines/tasks/govc-cmd/task.yml
+            params:
+              <<: *govc_env
+              COMMAND: vm.destroy
+              ARGS: centos-7-kube-v1.17.5
+      - task: import-ova-spec
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          files: kube-template-v1.17.x
+        output_mapping:
+          output: ova-spec
+        params:
+          <<: *govc_env
+          COMMAND: import.spec
+          ARGS: files/centos-7-kube-v1.17.5.ova
+      - task: configure-ova-network
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: cincan/jq
+              tag: latest
+          inputs:
+            - name: ova-spec
+          outputs:
+            - name: configured-ova-spec
+          run:
+            path: /bin/ash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == "true" ]]; then
+                  set -x
+                fi
+                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
+      - task: import-ova
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: pivotalgreenhouse/govc
+              tag: latest
+          inputs:
+            - name: configured-ova-spec
+            - name: kube-template-v1.17.x
+          params:
+            <<: *govc_env
+          run:
+            path: /bin/bash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == true ]]; then
+                  set -x
+                fi
+                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.17.x/centos-7-kube-v1.17.5.ova
+      - task: templatize
+        file: pipelines/tasks/govc-cmd/task.yml
+        params:
+          <<: *govc_env
+          COMMAND: vm.markastemplate
+          ARGS: centos-7-kube-v1.17.5
+      - task: get-info
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: vm-info
+        params:
+          <<: *govc_env
+          COMMAND: vm.info
+          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.17.5
+      - put: kube-template-info-v1.17.x
+        params:
+          file: vm-info/govc-cmd.out
+
+  - name: kube-templates-1.18.x
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: kube-template-v1.18.x
+            trigger: true
+      - try:
+          task: check-previous
+          file: pipelines/tasks/vm-exists/task.yml
+          params:
+            <<: *govc_env
+            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.18.2
+          on_success:
+            task: delete-previous
+            file: pipelines/tasks/govc-cmd/task.yml
+            params:
+              <<: *govc_env
+              COMMAND: vm.destroy
+              ARGS: centos-7-kube-v1.18.2
+      - task: import-ova-spec
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          files: kube-template-v1.18.x
+        output_mapping:
+          output: ova-spec
+        params:
+          <<: *govc_env
+          COMMAND: import.spec
+          ARGS: files/centos-7-kube-v1.18.2.ova
+      - task: configure-ova-network
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: cincan/jq
+              tag: latest
+          inputs:
+            - name: ova-spec
+          outputs:
+            - name: configured-ova-spec
+          run:
+            path: /bin/ash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == "true" ]]; then
+                  set -x
+                fi
+                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
+      - task: import-ova
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: pivotalgreenhouse/govc
+              tag: latest
+          inputs:
+            - name: configured-ova-spec
+            - name: kube-template-v1.18.x
+          params:
+            <<: *govc_env
+          run:
+            path: /bin/bash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == true ]]; then
+                  set -x
+                fi
+                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.18.x/centos-7-kube-v1.18.2.ova
+      - task: templatize
+        file: pipelines/tasks/govc-cmd/task.yml
+        params:
+          <<: *govc_env
+          COMMAND: vm.markastemplate
+          ARGS: centos-7-kube-v1.18.2
+      - task: get-info
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: vm-info
+        params:
+          <<: *govc_env
+          COMMAND: vm.info
+          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.18.2
+      - put: kube-template-info-v1.18.x
+        params:
+          file: vm-info/govc-cmd.out
+
+  - name: kube-templates-1.19.x
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: kube-template-v1.19.x
+            trigger: true
+      - try:
+          task: check-previous
+          file: pipelines/tasks/vm-exists/task.yml
+          params:
+            <<: *govc_env
+            VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.19.1
+          on_success:
+            task: delete-previous
+            file: pipelines/tasks/govc-cmd/task.yml
+            params:
+              <<: *govc_env
+              COMMAND: vm.destroy
+              ARGS: centos-7-kube-v1.19.1
+      - task: check-previous
+        file: pipelines/tasks/skip-unless-vm-exists/task.yml
+        output_mapping:
+          vm-exists: delete-conditions
+        params:
+          <<: *govc_env
+          VM: /Datacenter/vm/ClusterAPI/centos-7-kube-v1.19.1
+      - task: delete-previous
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          conditions: delete-conditions
+        params:
+          <<: *govc_env
+          COMMAND: vm.destroy
+          ARGS: centos-7-kube-v1.19.1
+      - task: import-ova-spec
+        file: pipelines/tasks/govc-cmd/task.yml
+        input_mapping:
+          files: kube-template-v1.19.x
+        output_mapping:
+          output: ova-spec
+        params:
+          <<: *govc_env
+          COMMAND: import.spec
+          ARGS: files/centos-7-kube-v1.19.1.ova
+      - task: configure-ova-network
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: cincan/jq
+              tag: latest
+          inputs:
+            - name: ova-spec
+          outputs:
+            - name: configured-ova-spec
+          run:
+            path: /bin/ash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == "true" ]]; then
+                  set -x
+                fi
+                jq '.NetworkMapping[].Network = "VM Network"' < ova-spec/govc-cmd.out > configured-ova-spec/spec.json
+      - task: import-ova
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: pivotalgreenhouse/govc
+              tag: latest
+          inputs:
+            - name: configured-ova-spec
+            - name: kube-template-v1.19.x
+          params:
+            <<: *govc_env
+          run:
+            path: /bin/bash
+            args:
+              - -c
+              - |
+                if [[ $DEBUG == true ]]; then
+                  set -x
+                fi
+                govc import.ova -folder=ClusterAPI --options=configured-ova-spec/spec.json kube-template-v1.19.x/centos-7-kube-v1.19.1.ova
+      - task: templatize
+        file: pipelines/tasks/govc-cmd/task.yml
+        params:
+          <<: *govc_env
+          COMMAND: vm.markastemplate
+          ARGS: centos-7-kube-v1.19.1
+      - task: get-info
+        file: pipelines/tasks/govc-cmd/task.yml
+        output_mapping:
+          output: vm-info
+        params:
+          <<: *govc_env
+          COMMAND: vm.info
+          ARGS: -json -r /Datacenter/vm/ClusterAPI/centos-7-kube-v1.19.1
+      - put: kube-template-info-v1.19.x
+        params:
+          file: vm-info/govc-cmd.out

@@ -1,0 +1,325 @@
+---
+govc_env: &govc_env
+  GOVC_INSECURE: "true"
+  GOVC_URL: https://((vsphere.server))/sdk
+  GOVC_USERNAME: ((vsphere.user))
+  GOVC_PASSWORD: ((vsphere.password))
+  GOVC_DATACENTER: Datacenter
+  GOVC_DATASTORE: Datastore 1
+  GOVC_NETWORK: VM Network
+  GOVC_RESOURCE_POOL: ClusterAPI
+  DEBUG: "false"
+
+s3_env: &s3_env
+  bucket: concourse
+  endpoint: ((s3.endpoint))
+  access_key_id: ((s3.access_key))
+  secret_access_key: ((s3.secret_key))
+
+vsphere_env: &vsphere_env
+  VSPHERE_USERNAME: ((vsphere.user))
+  VSPHERE_PASSWORD: ((vsphere.password))
+  VSPHERE_DATACENTER: Datacenter
+  VSPHERE_DATASTORE: Datastore 1
+  VSPHERE_NETWORK: VM Network
+  VSPHERE_SERVER: ((vsphere.server))
+  VSPHERE_SSH_AUTHORIZED_KEY: ((ssh_authorized_key))
+  VSPHERE_RESOURCE_POOL: ClusterAPI
+  VSPHERE_FOLDER: ClusterAPI
+  EXP_CLUSTER_RESOURCE_SET: "true"
+
+resources:
+  - name: pipelines
+    type: git
+    icon: concourse-ci
+    source:
+      uri: git@github.com:spiegela/spieg-pipelines.git
+      branch: master
+      private_key: ((private_key))
+
+  - name: credentials
+    type: s3
+    icon: file-key-outline
+    source:
+      versioned_file: ClusterAPI/credentials.yaml
+      <<: *s3_env
+
+  - name: kind-ip-address
+    type: s3
+    icon: ip-network-outline
+    source:
+      versioned_file: ClusterAPI/kind/ip-address
+      <<: *s3_env
+
+  - name: capi-cluster-yaml
+    type: s3
+    icon: code-json
+    source:
+      versioned_file: ClusterAPI/kind/cluster.yaml
+      <<: *s3_env
+
+  - name: capi-config
+    type: s3
+    icon: key-variant
+    source:
+      versioned_file: ClusterAPI/kind/config
+      <<: *s3_env
+
+  - name: clusterctl-release
+    type: github-release
+    icon: chevron-right-box-outline
+    source:
+      access_token: ((git_token))
+      owner: kubernetes-sigs
+      repository: cluster-api
+      private_key: ((private_key))
+
+  - name: capi-version
+    type: semver
+    icon: surround-sound-2-0
+    source:
+      key: ClusterAPI/kind/version
+      <<: *s3_env
+
+jobs:
+
+  - name: kind-vm
+    plan:
+      - get: pipelines
+      - try:
+          task: check-previous
+          file: pipelines/tasks/vm-exists/task.yml
+          params:
+            <<: *govc_env
+            VM: /Datacenter/vm/ClusterAPI/capi-kind
+          on_failure:
+            do:
+              - task: clone-from-template
+                file: pipelines/tasks/govc-cmd/task.yml
+                params:
+                  <<: *govc_env
+                  COMMAND: vm.clone
+                  ARGS: -on=true -link=true -waitip=true -vm ubuntu-20.04-template -folder ClusterAPI capi-kind
+              - task: wait-for-address
+                file: pipelines/tasks/wait-for-vm-address/task.yml
+                output_mapping:
+                  output: vm-info
+                params:
+                  <<: *govc_env
+                  VM: /Datacenter/vm/ClusterAPI/capi-kind
+              - task: install-docker-repo-deps
+                file: pipelines/tasks/ssh-exec/task.yml
+                input_mapping:
+                  connection: vm-info
+                params:
+                  PRIVATE_KEY: ((private_key))
+                  USERNAME: spiegela
+                  COMMAND: sudo
+                  ARGS: apt install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
+              - task: get-gpg-key
+                file: pipelines/tasks/ssh-exec/task.yml
+                input_mapping:
+                  connection: vm-info
+                params:
+                  PRIVATE_KEY: ((private_key))
+                  USERNAME: spiegela
+                  COMMAND: curl
+                  ARGS: -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+              - task: create-docker-repo
+                file: pipelines/tasks/ssh-exec/task.yml
+                input_mapping:
+                  connection: vm-info
+                params:
+                  PRIVATE_KEY: ((private_key))
+                  USERNAME: spiegela
+                  COMMAND: sudo
+                  ARGS: add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+              - task: update-apt-cache
+                file: pipelines/tasks/ssh-exec/task.yml
+                input_mapping:
+                  connection: vm-info
+                params:
+                  PRIVATE_KEY: ((private_key))
+                  USERNAME: spiegela
+                  COMMAND: sudo
+                  ARGS: apt update
+              - task: install-docker
+                file: pipelines/tasks/ssh-exec/task.yml
+                input_mapping:
+                  connection: vm-info
+                params:
+                  PRIVATE_KEY: ((private_key))
+                  USERNAME: spiegela
+                  COMMAND: sudo
+                  ARGS: apt install -y docker-ce docker-ce-cli containerd.io
+              - task: add-user-to-docker-group
+                file: pipelines/tasks/ssh-exec/task.yml
+                input_mapping:
+                  connection: vm-info
+                params:
+                  PRIVATE_KEY: ((private_key))
+                  USERNAME: spiegela
+                  COMMAND: sudo
+                  ARGS: adduser spiegela docker
+              - put: kind-ip-address
+                params:
+                  file: vm-info/ip-address
+
+  - name: capi-config
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: credentials
+          - get: kind-ip-address
+            trigger: true
+            passed:
+              - kind-vm
+          - get: capi-cluster-yaml
+            trigger: true
+      - in_parallel:
+          - task: configure-kind-cluster
+            config:
+              platform: linux
+              image_resource:
+                type: docker-image
+                source:
+                  repository: alpine
+                  tag: latest
+              inputs:
+                - name: capi-cluster-yaml
+                - name: kind-ip-address
+              outputs:
+                - name: final-cluster-yaml
+              run:
+                path: /bin/ash
+                args:
+                  - -c
+                  - |
+                    if [[ $DEBUG == "true" ]]; then
+                      set -x
+                    fi
+                    echo "🌍 Making kind api server accessible on external IP: ${REAL_IP}"
+                    REAL_IP=$(cat kind-ip-address/ip-address)
+                    sed -e "s|KIND_IP_ADDRESS|$REAL_IP|" capi-cluster-yaml/cluster.yaml > final-cluster-yaml/cluster.yaml
+
+                    echo "🛡 Adding mulitple nodes for HA Kind cluster"
+                    cat <<EOF >> final-cluster-yaml/cluster.yaml
+                    nodes:
+                      - role: control-plane
+                        kubeadmConfigPatches:
+                          - |
+                              kind: InitConfiguration
+                              nodeRegistration:
+                                taints: []
+                      - role: control-plane
+                        kubeadmConfigPatches:
+                          - |
+                              kind: InitConfiguration
+                              nodeRegistration:
+                                taints: []
+                      - role: control-plane
+                        kubeadmConfigPatches:
+                          - |
+                              kind: InitConfiguration
+                              nodeRegistration:
+                                taints: []
+                    EOF
+          - task: download-kind
+            file: pipelines/tasks/ssh-exec/task.yml
+            input_mapping:
+              connection: kind-ip-address
+            params:
+              PRIVATE_KEY: ((private_key))
+              USERNAME: spiegela
+              COMMAND: curl
+              ARGS: -Lo ./kind https://kind.sigs.k8s.io/dl/v0.8.1/kind-linux-amd64
+      - in_parallel:
+          - task: copy-cluster-yaml-to-kind
+            file: pipelines/tasks/scp-file/task.yml
+            input_mapping:
+              connection: kind-ip-address
+              files: final-cluster-yaml
+            params:
+              PRIVATE_KEY: ((private_key))
+              USERNAME: spiegela
+              SOURCE: files/cluster.yaml
+              DEST: ~/cluster.yaml
+          - task: chmod-kind
+            file: pipelines/tasks/ssh-exec/task.yml
+            input_mapping:
+              connection: kind-ip-address
+            params:
+              PRIVATE_KEY: ((private_key))
+              USERNAME: spiegela
+              COMMAND: chmod
+              ARGS: +x ./kind
+      - task: install-kind
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: kind-ip-address
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: sudo
+          ARGS: mv ./kind /usr/local/bin
+      - try:
+          task: delete-kind-cluster-if-exists
+          file: pipelines/tasks/ssh-exec/task.yml
+          input_mapping:
+            connection: kind-ip-address
+          params:
+            PRIVATE_KEY: ((private_key))
+            USERNAME: spiegela
+            COMMAND: /usr/local/bin/kind
+            ARGS: delete cluster
+      - task: create-kind-cluster
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: kind-ip-address
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: /usr/local/bin/kind
+          ARGS: create cluster --config=cluster.yaml
+      - task: get-capi-config
+        file: pipelines/tasks/ssh-exec/task.yml
+        input_mapping:
+          connection: kind-ip-address
+        output_mapping:
+          output: capi-config
+        params:
+          PRIVATE_KEY: ((private_key))
+          USERNAME: spiegela
+          COMMAND: /usr/local/bin/kind
+          ARGS: get kubeconfig
+          OUTFILE: config
+      - put: capi-config
+        params:
+          file: capi-config/config
+
+  - name: capi-clusterctl-init
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: capi-config
+            trigger: true
+            passed:
+              - capi-config
+          - get: clusterctl-release
+            trigger: true
+          - get: capi-version
+            params:
+              bump: patch
+              file: version
+      - try:
+          task: clusterctl-init
+          file: pipelines/tasks/clusterctl-init/task.yml
+          input_mapping:
+            clusterctl: clusterctl-release
+            config: capi-config
+          params:
+            <<: *vsphere_env
+            INFRASTRUCTURE: vsphere:v0.7.0
+      - put: capi-version
+        params:
+          bump: patch

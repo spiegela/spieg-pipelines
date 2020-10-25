@@ -54,7 +54,6 @@ resources:
     type: kubernetes-object
     icon: database
     source:
-      tracing_enabled: true
       list: PersistentVolume
       kubeconfig: ((gamboge_config))
 
@@ -62,7 +61,6 @@ resources:
     type: kubernetes-object
     icon: database
     source:
-      tracing_enabled: true
       list: PersistentVolume
       kubeconfig: ((jonquil_config))
 
