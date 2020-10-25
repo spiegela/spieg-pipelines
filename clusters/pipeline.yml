@@ -44,6 +44,7 @@ resource_types:
 resources:
   - name: pipelines
     type: git
+    icon: mdi-concourse-ci
     source:
       uri: git@github.com:spiegela/spieg-pipelines.git
       branch: master
@@ -51,78 +52,91 @@ resources:
 
   - name: kube-template-v1.16.x
     type: s3
+    icon: mdi-file-multiple-outline
     source:
       regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.16.9).ova
       <<: *s3_env
 
   - name: kube-template-v1.17.x
     type: s3
+    icon: mdi-file-multiple-outline
     source:
       regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.17.5).ova
       <<: *s3_env
 
   - name: kube-template-v1.18.x
     type: s3
+    icon: mdi-file-multiple-outline
     source:
       regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.18.2).ova
       <<: *s3_env
 
   - name: kube-template-v1.19.x
     type: s3
+    icon: mdi-file-multiple-outline
     source:
       regexp: ClusterAPI/assets/capv/kube/centos-7-kube-v(1.19.1).ova
       <<: *s3_env
 
   - name: kube-template-info-v1.16.x
     type: s3
+    icon: mdi-file-code-outline
     source:
       versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.16.x.json
       <<: *s3_env
 
   - name: kube-template-info-v1.17.x
     type: s3
+    icon: mdi-file-code-outline
     source:
       versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.17.x.json
       <<: *s3_env
 
   - name: kube-template-info-v1.18.x
     type: s3
+    icon: mdi-file-code-outline
     source:
       versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.18.x.json
       <<: *s3_env
 
   - name: kube-template-info-v1.19.x
     type: s3
+    icon: mdi-file-code-outline
     source:
       versioned_file: ClusterAPI/assets/capv/kube/capv-template-info-v1.19.x.json
       <<: *s3_env
 
   - name: credentials
     type: s3
+    icon: mdi-file-key-outline
     source:
       versioned_file: ClusterAPI/credentials.yaml
       <<: *s3_env
 
   - name: kind-config
     type: s3
+    icon: mdi-key-variant
     source:
       versioned_file: ClusterAPI/kind/config
       <<: *s3_env
 
   - name: kind-ip-address
     type: s3
+    icon: mdi-ip-network-outline
     source:
       versioned_file: ClusterAPI/kind/ip-address
       <<: *s3_env
 
   - name: kind-cluster-yaml
     type: s3
+    icon: mdi-code-json
     source:
       versioned_file: ClusterAPI/kind/cluster.yaml
       <<: *s3_env
 
   - name: clusterctl-release
     type: github-release
+    icon: mdi-chevron-right-box-outline
     source:
       access_token: ((git_token))
       owner: kubernetes-sigs
@@ -131,12 +145,14 @@ resources:
 
   - name: gamboge-cluster-yaml
     type: s3
+    icon: mdi-code-json
     source:
       versioned_file: ClusterAPI/gamboge/cluster.yaml
       <<: *s3_env
 
   - name: jonquil-cluster-yaml
     type: s3
+    icon: mdi-code-json
     source:
       tracing_enabled: true
       versioned_file: ClusterAPI/jonquil/cluster.yaml
@@ -144,6 +160,7 @@ resources:
 
   - name: jonquil-cluster
     type: kubernetes-object
+    icon: mdi-kubernetes
     source:
       objects:
         - name: jonquil
@@ -152,6 +169,7 @@ resources:
 
   - name: gamboge-cluster
     type: kubernetes-object
+    icon: mdi-kubernetes
     source:
       tracing_enabled: true
       objects:
@@ -161,6 +179,7 @@ resources:
 
   - name: jonquil-kubeconfig-secret
     type: kubernetes-object
+    icon: mdi-key
     source:
       objects:
         - name: jonquil-kubeconfig
@@ -169,6 +188,7 @@ resources:
 
   - name: gamboge-kubeconfig-secret
     type: kubernetes-object
+    icon: mdi-key
     source:
       objects:
         - name: gamboge-kubeconfig
@@ -177,36 +197,42 @@ resources:
 
   - name: gamboge-config
     type: s3
+    icon: mdi-key-variant
     source:
       versioned_file: ClusterAPI/gamboge/config
       <<: *s3_env
 
   - name: jonquil-config
     type: s3
+    icon: mdi-key-variant
     source:
       versioned_file: ClusterAPI/jonquil/config
       <<: *s3_env
 
   - name: base-config
     type: s3
+    icon: mdi-key-variant
     source:
       versioned_file: ClusterAPI/base-kubeconfig.yaml
       <<: *s3_env
 
   - name: merged-config
     type: s3
+    icon: mdi-key-variant
     source:
       versioned_file: ClusterAPI/all/config
       <<: *s3_env
 
   - name: gamboge-version
     type: semver
+    icon: mdi-surround-sound-2-0
     source:
       key: ClusterAPI/gamboge/version
       <<: *s3_env
 
   - name: jonquil-version
     type: semver
+    icon: mdi-surround-sound-2-0
     source:
       key: ClusterAPI/jonquil/version
       <<: *s3_env
@@ -689,7 +715,7 @@ jobs:
         - get: kind-cluster-yaml
           trigger: true
       - in_parallel:
-        - task: inject-ip-to-kind-cluster-yaml
+        - task: configure-kind-cluster
           config:
             platform: linux
             image_resource:
@@ -710,8 +736,17 @@ jobs:
                   if [[ $DEBUG == "true" ]]; then
                     set -x
                   fi
+                  echo "🌍 Making kind api server accessible on external IP: ${REAL_IP}"
                   REAL_IP=$(cat kind-ip-address/ip-address)
                   sed -e "s|KIND_IP_ADDRESS|$REAL_IP|" kind-cluster-yaml/cluster.yaml > final-cluster-yaml/cluster.yaml
+
+                  echo "🛡 Adding mulitple nodes for HA Kind cluster"
+                  cat <<EOF >> final-cluster-yaml/cluster.yaml
+                  nodes:
+                    - role: control-plane
+                    - role: control-plane
+                    - role: control-plane
+                  EOF
         - task: download-kind
           file: pipelines/tasks/ssh-exec/task.yml
           input_mapping:
