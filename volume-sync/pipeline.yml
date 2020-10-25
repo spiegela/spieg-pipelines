@@ -16,6 +16,7 @@ resource_types:
 resources:
   - name: pipelines
     type: git
+    icon: concourse-ci
     source:
       uri: git@github.com:spiegela/spieg-pipelines.git
       branch: master
@@ -23,30 +24,35 @@ resources:
 
   - name: credentials
     type: s3
+    icon: file-key-outline
     source:
       versioned_file: ClusterAPI/credentials.yaml
       <<: *s3_env
 
   - name: jonquil-config
     type: s3
+    icon: key-variant
     source:
       versioned_file: ClusterAPI/jonquil/config
       <<: *s3_env
 
   - name: gamboge-config
     type: s3
+    icon: key-variant
     source:
       versioned_file: ClusterAPI/gamboge/config
       <<: *s3_env
 
   - name: all-volumes
     type: s3
+    icon: database
     source:
       versioned_file: ClusterAPI/all/volumes.tgz
       <<: *s3_env
 
   - name: gamboge-volumes
     type: kubernetes-object
+    icon: database
     source:
       tracing_enabled: true
       list: PersistentVolume
@@ -54,6 +60,7 @@ resources:
 
   - name: jonquil-volumes
     type: kubernetes-object
+    icon: database
     source:
       tracing_enabled: true
       list: PersistentVolume
@@ -61,6 +68,7 @@ resources:
 
   - name: mikado-volumes
     type: s3
+    icon: database
     source:
       versioned_file: ClusterAPI/mikado/volumes.json
       <<: *s3_env

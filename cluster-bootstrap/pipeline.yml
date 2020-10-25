@@ -27,6 +27,7 @@ resource_types:
 resources:
   - name: pipelines
     type: git
+    icon: concourse-ci
     source:
       uri: git@github.com:spiegela/spieg-pipelines.git
       branch: master
@@ -34,12 +35,14 @@ resources:
 
   - name: config
     type: s3
+    icon: key-variant
     source:
       versioned_file: ClusterAPI/((cluster_name))/config
       <<: *s3_env
 
   - name: calico
     type: kubernetes-object
+    icon: network
     source:
       namespae: kube-system
       url: https://docs.projectcalico.org/manifests/calico.yaml
@@ -47,6 +50,7 @@ resources:
 
   - name: powerflex-system-namespace
     type: kubernetes-object
+    icon: folder-table-outline
     source:
       objects:
         - name: powerflex-system
@@ -55,6 +59,7 @@ resources:
 
   - name: metrics-server
     type: kubernetes-object
+    icon: gauge
     source:
       namespace: kube-system
       url: https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.3.7/components.yaml
@@ -62,6 +67,7 @@ resources:
 
   - name: kube-proxy-configmap
     type: kubernetes-object
+    icon: plus-network-outline
     source:
       namespace: kube-system
       objects:
@@ -71,12 +77,14 @@ resources:
 
   - name: metallb-system-namespace
     type: kubernetes-object
+    icon: folder-table-outline
     source:
       url: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
       <<: *k8s_env
 
   - name: metallb-configmap-template
     type: s3
+    icon: file-cog
     source:
       namespace: metallb-system
       versioned_file: ClusterAPI/((cluster_name))/metallb-configmap.yaml
@@ -84,6 +92,7 @@ resources:
 
   - name: memberlist-secret
     type: kubernetes-object
+    icon: key-variant
     source:
       namespace: metallb-system
       objects:
@@ -93,6 +102,7 @@ resources:
 
   - name: metallb-configmap
     type: kubernetes-object
+    icon: plus-network-outline
     source:
       namespace: metallb-system
       objects:
@@ -102,6 +112,7 @@ resources:
 
   - name: metallb
     type: kubernetes-object
+    icon: router-network
     source:
       namespace: metallb-system
       url: https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
@@ -109,18 +120,21 @@ resources:
 
   - name: powerflex-secret-template
     type: s3
+    icon: file-key-outline
     source:
       versioned_file: ClusterAPI/((cluster_name))/powerflex-secret.yaml
       <<: *s3_env
 
   - name: helm-operator-values
     type: s3
+    icon: content-save-cog-outline
     source:
       versioned_file: ClusterAPI/((cluster_name))/fluxcd-helm-operator-values.yaml
       <<: *s3_env
 
   - name: powerflex-secret
     type: kubernetes-object
+    icon: key-variant
     source:
       namespace: powerflex-system
       objects:
@@ -130,12 +144,14 @@ resources:
 
   - name: registry-secret-template
     type: s3
+    icon: file-key-outline
     source:
       versioned_file: ClusterAPI/((cluster_name))/registry-secret.yaml
       <<: *s3_env
 
   - name: powerflex-registry-secret
     type: kubernetes-object
+    icon: key-variant
     source:
       objects:
         - name: dockerhub-registry
@@ -145,12 +161,14 @@ resources:
 
   - name: powerflex-sdc-init-values
     type: s3
+    icon: content-save-cog-outline
     source:
       versioned_file: ClusterAPI/((cluster_name))/powerflex-sdc-init-values.yaml
       <<: *s3_env
 
   - name: powerflex-sdc-init-repo
     type: git
+    icon: github
     source:
       uri: git@github.com:spiegela/powerflex-sdc-init.git
       branch: master
@@ -158,6 +176,7 @@ resources:
 
   - name: csi-powerflex-repo
     type: git
+    icon: github
     source:
       uri: git@github.com:spiegela/csi-powerflex.git
       branch: ((csi_branch))
@@ -165,12 +184,14 @@ resources:
 
   - name: csi-powerflex-values
     type: s3
+    icon: content-save-cog-outline
     source:
       versioned_file: ClusterAPI/((cluster_name))/csi-powerflex-values.yaml
       <<: *s3_env
 
   - name: powerflex-sdc-init-release
     type: helm-release
+    icon: kubernetes
     source:
       release: sdc-init
       namespace: powerflex-system
@@ -178,24 +199,28 @@ resources:
 
   - name: csi-snapshotclass-crd
     type: kubernetes-object
+    icon: shape
     source:
       url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
       <<: *k8s_env
 
   - name: csi-snapshotcontent-crd
     type: kubernetes-object
+    icon: shape
     source:
       url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
       <<: *k8s_env
 
   - name: csi-snapshot-crd
     type: kubernetes-object
+    icon: shape
     source:
       url: https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
       <<: *k8s_env
 
   - name: csi-powerflex-release
     type: helm-release
+    icon: kubernetes
     source:
       release: csi
       namespace: powerflex-system
@@ -203,12 +228,14 @@ resources:
 
   - name: traefik-values
     type: s3
+    icon: content-save-cog-outline
     source:
       versioned_file: ClusterAPI/((cluster_name))/traefik-values.yaml
       <<: *s3_env
 
   - name: traefik-release
     type: helm-release
+    icon: kubernetes
     source:
       release: traefik
       namespace: traefik-system
@@ -216,6 +243,7 @@ resources:
 
   - name: cert-manager-release
     type: helm-release
+    icon: kubernetes
     source:
       release: cert-manager
       namespace: cert-manager
@@ -226,12 +254,14 @@ resources:
 
   - name: node-list
     type: kubernetes-object
+    icon: server
     source:
       list: nodes
       <<: *k8s_env
 
   - name: cert-manager-crds
     type: kubernetes-object
+    icon: shape
     source:
       namespace: cert-manager
       url: https://github.com/jetstack/cert-manager/releases/download/v0.16.1/cert-manager.crds.yaml
@@ -239,12 +269,14 @@ resources:
 
   - name: letsencrypt-issuers-template
     type: s3
+    icon: file-code
     source:
       versioned_file: ClusterAPI/((cluster_name))/letsencrypt-issuers.yaml
       <<: *s3_env
 
   - name: letsencrypt-issuers
     type: kubernetes-object
+    icon: kubernetes
     source:
       namespace: cert-manager
       objects:
@@ -256,12 +288,14 @@ resources:
 
   - name: helm-operator-crds
     type: kubernetes-object
+    icon: shape
     source:
       url: https://raw.githubusercontent.com/fluxcd/helm-operator/master/deploy/crds.yaml
       <<: *k8s_env
 
   - name: helm-operator-release
     type: helm-release
+    icon: kubernetes
     source:
       release: helm-operator
       namespace: fluxcd-system
