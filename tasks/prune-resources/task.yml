@@ -1,0 +1,52 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: bitnami/kubectl
+    tag: 1.18.0
+
+params:
+  DEBUG:
+  IGNORE_ERROR:
+  KUBECONFIG: config/config
+  TIMEOUT: 300
+  KIND:
+  CLUSTER:
+  NAMESPACED: true
+
+inputs:
+  - name: applications
+  - name: config
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      if [[ $DEBUG == true ]]; then
+        set -x
+      fi
+
+      # Only namespaces found in the apps repo will be pruned
+      for NAMESPACE in applications/common/ns/*; do
+
+        OBJECTS=$(kubectl -n "$NAMESPACE" get "$KIND" -o custom-columns=NAME:.metadata.name)
+
+        for NAME in "$OBJECTS"; do
+
+          FILENAME="ns/${NAMESPACE}/${NAME}-${KIND}.yaml"
+
+          # Any resource of the specified kind, found that doesn't exist in the
+          # common, or the cluster directories will be removed.
+          if [[ ! -f "applications/common/${FILENAME}" && ! -f "applications/${CLUSTER}/${FILENAME}" ]]; then
+            echo "💀 Deleting $KIND: $NAMESPACE/$NAME"
+            kubectl -n "$NAMESPACE" delete "${KIND}" "${NAME}" --wait=true
+          fi
+
+        done
+
+      done
+
+      exit 0
