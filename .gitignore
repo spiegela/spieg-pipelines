@@ -1,2 +1,7 @@
 credentials.yml
+*-credentials.yaml
+*-secret.yaml
 *.iml
+venv
+.idea
+
