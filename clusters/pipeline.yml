@@ -399,6 +399,8 @@ jobs:
       - in_parallel:
           - get: base-config
             trigger: true
+          - get: emc-config
+            trigger: true
           - get: capi-config
             trigger: true
           - get: jonquil-config
