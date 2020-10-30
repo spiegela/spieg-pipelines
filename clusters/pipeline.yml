@@ -159,6 +159,13 @@ resources:
       versioned_file: ClusterAPI/base-kubeconfig.yaml
       <<: *s3_env
 
+  - name: emc-config
+    type: s3
+    icon: key-variant
+    source:
+      versioned_file: ClusterAPI/emc-kubeconfig.yaml
+      <<: *s3_env
+
   - name: merged-config
     type: s3
     icon: key-variant
@@ -412,6 +419,7 @@ jobs:
               tag: 1.19.1
           inputs:
             - name: base-config
+            - name: emc-config
             - name: capi-config
             - name: jonquil-config
             - name: gamboge-config
@@ -422,7 +430,7 @@ jobs:
             args:
               - -c
               - |
-                KUBECONFIG=base-config/base-kubeconfig.yaml:capi-config/config:jonquil-config/config:gamboge-config/config kubectl config view --merge --flatten > \
+                KUBECONFIG=base-config/base-kubeconfig.yaml:emc-config/emc-kubeconfig.yaml:capi-config/config:jonquil-config/config:gamboge-config/config kubectl config view --merge --flatten > \
                   merged/config
       - put: merged-config
         params:
