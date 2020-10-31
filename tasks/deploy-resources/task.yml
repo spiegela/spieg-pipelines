@@ -1,0 +1,54 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: bitnami/kubectl
+    tag: 1.18.0
+
+params:
+  DEBUG:
+  IGNORE_ERROR:
+  KUBECONFIG: config/config
+  TIMEOUT: 300
+  KIND:
+  CLUSTER:
+  NAMESPACED: true
+
+inputs:
+  - name: applications
+  - name: config
+  - name: manifest
+
+run:
+  path: /bin/bash
+  args:
+    - -c
+    - |
+      set -e
+      if [[ $DEBUG == true ]]; then
+        set -x
+      fi
+
+      # Only namespaces found in the apps repo will be deployed into
+
+      PATH_LIST=()
+      PATH_LIST=$(/usr/bin/find applications/common/ns -name \*-${KIND}.yaml)
+      PATH_LIST+=$(/usr/bin/find applications/${CLUSTER}/ns -name \*-${KIND}.yaml)
+      for PATH in ${PATH_LIST[@]}; do
+
+        NAMESPACE=$(/usr/bin/cut -d"/" -f4 <<< "$PATH")
+        NAME=$(/usr/bin/cut -d"/" -f 5 <<< "$PATH" | /usr/bin/cut -d- -f1)
+        if [ -n "$NAME" ]; then
+
+          if [[ $(/bin/grep -c "$NAME" manifest/${KIND}.txt) -eq 0 ]]; then
+            echo "🚀 Installing $KIND $NAMESPACE/$NAME"
+            /opt/bitnami/kubectl/bin/kubectl -n "$NAMESPACE" apply -f "$PATH" --wait=true
+          fi
+
+        fi
+
+      done
+
+      exit 0

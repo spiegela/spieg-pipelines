@@ -5,7 +5,7 @@ image_resource:
   type: docker-image
   source:
     repository: bitnami/kubectl
-    tag: 1.18.0
+    tag: 1.19.2
 
 params:
   DEBUG:
@@ -25,26 +25,31 @@ run:
   args:
     - -c
     - |
+      set -e
+
       if [[ $DEBUG == true ]]; then
         set -x
       fi
 
       # Only namespaces found in the apps repo will be pruned
-      for NAMESPACE in applications/common/ns/*; do
+      for PATH in applications/common/ns/*; do
+        NAMESPACE=$(/usr/bin/basename $PATH)
 
-        OBJECTS=$(kubectl -n "$NAMESPACE" get "$KIND" -o custom-columns=NAME:.metadata.name)
+        OBJECTS=$(/opt/bitnami/kubectl/bin/kubectl -n "$NAMESPACE" get "$KIND" -o custom-columns=NAME:.metadata.name --no-headers)
 
         for NAME in "$OBJECTS"; do
+          if [ -n "$NAME" ]; then
 
-          FILENAME="ns/${NAMESPACE}/${NAME}-${KIND}.yaml"
+            FILE="${NAMESPACE}/${NAME}-${KIND}.yaml"
 
-          # Any resource of the specified kind, found that doesn't exist in the
-          # common, or the cluster directories will be removed.
-          if [[ ! -f "applications/common/${FILENAME}" && ! -f "applications/${CLUSTER}/${FILENAME}" ]]; then
-            echo "💀 Deleting $KIND: $NAMESPACE/$NAME"
-            kubectl -n "$NAMESPACE" delete "${KIND}" "${NAME}" --wait=true
+            # Any resource of the specified kind, found that doesn't exist in the
+            # common, or the cluster directories will be removed.
+            if [[ ! -f "applications/common/${FILE}" && ! -f "applications/${CLUSTER}/${FILE}" ]]; then
+              echo "💀 Deleting $KIND: $NAMESPACE/$NAME"
+              /opt/bitnami/kubectl/bin/kubectl -n "$NAMESPACE" delete "${KIND}" "${NAME}" --wait=true
+            fi
+
           fi
-
         done
 
       done

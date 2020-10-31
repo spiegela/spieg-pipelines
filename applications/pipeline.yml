@@ -1,0 +1,324 @@
+---
+s3_env: &s3_env
+  bucket: concourse
+  endpoint: ((s3.endpoint))
+  access_key_id: ((s3.access_key))
+  secret_access_key: ((s3.secret_key))
+
+resource_types:
+
+  - name: kubernetes-object
+    type: docker-image
+    source:
+      repository: spiegela/concourse-kubernetes
+      tag: latest
+
+resources:
+  - name: pipelines
+    type: git
+    icon: concourse-ci
+    source:
+      uri: git@github.com:spiegela/spieg-pipelines.git
+      branch: master
+      private_key: ((private_key))
+
+  - name: applications
+    type: git
+    icon: github
+    source:
+      uri: git@github.com:spiegela/spieg-apps.git
+      branch: master
+      private_key: ((private_key))
+
+  - name: credentials
+    type: s3
+    icon: file-key-outline
+    source:
+      versioned_file: ClusterAPI/credentials.yaml
+      <<: *s3_env
+
+  - name: jonquil-config
+    type: s3
+    icon: key-variant
+    source:
+      versioned_file: ClusterAPI/jonquil/config
+      <<: *s3_env
+
+  - name: gamboge-config
+    type: s3
+    icon: key-variant
+    source:
+      versioned_file: ClusterAPI/gamboge/config
+      <<: *s3_env
+
+  - name: gamboge-namespace-list
+    type: kubernetes-object
+    icon: folder-table-outline
+    source:
+      kubeconfig: ((gamboge-config))
+      list: namespace
+
+  - name: gamboge-release-list
+    type: kubernetes-object
+    icon: anchor
+    source:
+      kubeconfig: ((gamboge-config))
+      list: helmreleases
+
+  - name: gamboge-pvc-list
+    type: kubernetes-object
+    icon: database
+    source:
+      kubeconfig: ((gamboge-config))
+      list: pvc
+
+  - name: jonquil-namespace-list
+    type: kubernetes-object
+    icon: folder-table-outline
+    source:
+      kubeconfig: ((jonquil-config))
+      list: namespace
+
+  - name: jonquil-release-list
+    type: kubernetes-object
+    icon: anchor
+    source:
+      kubeconfig: ((jonquil-config))
+      list: helmreleases
+
+  - name: jonquil-pvc-list
+    type: kubernetes-object
+    icon: database
+    source:
+      kubeconfig: ((jonquil-config))
+      list: pvc
+
+  - name: jonquil-release-manifest
+    type: s3
+    icon: anchor
+    source:
+      versioned_file: ClusterAPI/jonquil/helmrelease.txt
+      <<: *s3_env
+
+  - name: jonquil-pvc-manifest
+    type: s3
+    icon: database
+    source:
+      versioned_file: ClusterAPI/jonquil/pvc.txt
+      <<: *s3_env
+
+  - name: gamboge-release-manifest
+    type: s3
+    icon: anchor
+    source:
+      versioned_file: ClusterAPI/gamboge/helmrelease.txt
+      <<: *s3_env
+
+  - name: gamboge-pvc-manifest
+    type: s3
+    icon: database
+    source:
+      versioned_file: ClusterAPI/gamboge/pvc.txt
+      <<: *s3_env
+
+  - name: jonquil-namespace-manifest
+    type: s3
+    icon: folder-table-outline
+    source:
+      versioned_file: ClusterAPI/jonquil/namespace.txt
+      <<: *s3_env
+
+  - name: gamboge-namespace-manifest
+    type: s3
+    icon: folder-table-outline
+    source:
+      versioned_file: ClusterAPI/gamboge/namespace.txt
+      <<: *s3_env
+
+jobs:
+  - name: load-config-vars
+    plan:
+      - in_parallel:
+          - get: pipelines
+          - get: credentials
+          - do:
+              - get: gamboge-config
+              - load_var: loaded-gamboge-config
+                file: gamboge-config/config
+          - do:
+              - get: jonquil-config
+              - load_var: loaded-jonquil-config
+                file: jonquil-config/config
+      - set_pipeline: self
+        file: pipelines/applications/pipeline.yml
+        vars:
+          gamboge-config: ((.:loaded-gamboge-config))
+          jonquil-config: ((.:loaded-jonquil-config))
+        var_files:
+          - credentials/credentials.yaml
+
+  - name: apply-global-resources
+    plan:
+      - in_parallel:
+        - get: pipelines
+        - get: applications
+          trigger: true
+        - get: jonquil-config
+        - get: gamboge-config
+      - in_parallel:
+        - do:
+          - put: jonquil-namespace-list
+            params:
+              file: applications/common/global
+          - get: jonquil-namespace-list
+            params:
+              command_args: --no-headers
+              output: custom-columns=NAME:.metadata.name
+              output_file: namespace.txt
+          - put: jonquil-namespace-manifest
+            params:
+              file: jonquil-namespace-list/namespace.txt
+        - do:
+          - put: gamboge-namespace-list
+            params:
+              file: applications/common/global
+          - get: gamboge-namespace-list
+            params:
+              command_args: --no-headers
+              output: custom-columns=NAME:.metadata.name
+              output_file: namespace.txt
+          - put: gamboge-namespace-manifest
+            params:
+              file: gamboge-namespace-list/namespace.txt
+
+  - name: prune-resources
+    plan:
+      - in_parallel:
+        - get: jonquil-namespace-manifest
+          passed:
+            - apply-global-resources
+        - get: gamboge-namespace-manifest
+          passed:
+            - apply-global-resources
+        - get: applications
+        - get: pipelines
+      - across:
+          - var: kind
+            values:
+              - pvc
+              - helmrelease
+        do:
+          - get: jonquil-config
+          - get: gamboge-config
+          - task: prune-jonquil-resources
+            file: pipelines/tasks/prune-resources/task.yml
+            input_mapping:
+              config: jonquil-config
+            params:
+              KIND: ((.:kind))
+              CLUSTER: jonquil
+          - task: prune-gamboge-resources
+            file: pipelines/tasks/prune-resources/task.yml
+            input_mapping:
+              config: gamboge-config
+            params:
+              KIND: ((.:kind))
+              CLUSTER: gamboge
+      - in_parallel:
+          - do:
+            - get: jonquil-pvc-list
+              params:
+                command_args: --no-headers
+                output: custom-columns=NAME:.metadata.name
+                output_file: pvc.txt
+            - put: jonquil-pvc-manifest
+              params:
+                file: jonquil-pvc-list/pvc.txt
+          - do:
+            - get: gamboge-pvc-list
+              params:
+                command_args: --no-headers
+                output: custom-columns=NAME:.metadata.name
+                output_file: pvc.txt
+            - put: gamboge-pvc-manifest
+              params:
+                file: gamboge-pvc-list/pvc.txt
+          - do:
+            - get: jonquil-release-list
+              params:
+                command_args: --no-headers
+                output: custom-columns=NAME:.metadata.name
+                output_file: releases.txt
+            - put: jonquil-release-manifest
+              params:
+                file: jonquil-release-list/releases.txt
+          - do:
+            - get: gamboge-release-list
+              params:
+                command_args: --no-headers
+                output: custom-columns=NAME:.metadata.name
+                output_file: releases.txt
+            - put: gamboge-release-manifest
+              params:
+                file: gamboge-release-list/releases.txt
+
+  - name: deploy-resources
+    plan:
+      - in_parallel:
+        - get: gamboge-config
+        - get: jonquil-config
+        - get: applications
+        - get: pipelines
+      - in_parallel:
+        - do:
+          - get: jonquil-pvc-manifest
+            trigger: true
+            passed:
+              - prune-resources
+          - task: deploy-resources
+            file: pipelines/tasks/deploy-resources/task.yml
+            input_mapping:
+              manifest: jonquil-pvc-manifest
+              config: jonquil-config
+            params:
+              KIND: pvc
+              CLUSTER: jonquil
+        - do:
+          - get: jonquil-release-manifest
+            trigger: true
+            passed:
+              - prune-resources
+          - task: deploy-resources
+            file: pipelines/tasks/deploy-resources/task.yml
+            input_mapping:
+              manifest: jonquil-release-manifest
+              config: jonquil-config
+            params:
+              KIND: helmrelease
+              CLUSTER: jonquil
+        - do:
+          - get: gamboge-pvc-manifest
+            trigger: true
+            passed:
+              - prune-resources
+          - task: deploy-resources
+            file: pipelines/tasks/deploy-resources/task.yml
+            input_mapping:
+              manifest: gamboge-pvc-manifest
+              config: gamboge-config
+            params:
+              KIND: pvc
+              CLUSTER: gamboge
+        - do:
+          - get: gamboge-release-manifest
+            trigger: true
+            passed:
+              - prune-resources
+          - task: deploy-resources
+            file: pipelines/tasks/deploy-resources/task.yml
+            input_mapping:
+              manifest: gamboge-release-manifest
+              config: gamboge-config
+            params:
+              KIND: helmrelease
+              CLUSTER: gamboge
