@@ -35,16 +35,16 @@ run:
       for PATH in applications/common/ns/*; do
         NAMESPACE=$(/usr/bin/basename $PATH)
 
-        OBJECTS=$(/opt/bitnami/kubectl/bin/kubectl -n "$NAMESPACE" get "$KIND" -o custom-columns=NAME:.metadata.name --no-headers)
+        OBJECTS=()
+        OBJECTS=($(/opt/bitnami/kubectl/bin/kubectl -n "$NAMESPACE" get "$KIND" -o custom-columns=NAME:.metadata.name --no-headers))
 
-        for NAME in "$OBJECTS"; do
+        for NAME in "${OBJECTS[@]}"; do
           if [ -n "$NAME" ]; then
-
             FILE="${NAMESPACE}/${NAME}-${KIND}.yaml"
 
             # Any resource of the specified kind, found that doesn't exist in the
             # common, or the cluster directories will be removed.
-            if [[ ! -f "applications/common/${FILE}" && ! -f "applications/${CLUSTER}/${FILE}" ]]; then
+            if [[ ! (-f "applications/common/${FILE}" || -f "applications/${CLUSTER}/${FILE}") ]]; then
               echo "💀 Deleting $KIND: $NAMESPACE/$NAME"
               /opt/bitnami/kubectl/bin/kubectl -n "$NAMESPACE" delete "${KIND}" "${NAME}" --wait=true
             fi

@@ -191,49 +191,46 @@ jobs:
             params:
               file: gamboge-namespace-list/namespace.txt
 
-  - name: prune-resources
+  - name: prune-releases
     plan:
       - in_parallel:
         - get: jonquil-namespace-manifest
+          trigger: true
           passed:
             - apply-global-resources
         - get: gamboge-namespace-manifest
+          trigger: true
           passed:
             - apply-global-resources
         - get: applications
         - get: pipelines
-      - across:
-          - var: kind
-            values:
-              - pvc
-              - helmrelease
-        do:
-          - get: jonquil-config
-          - get: gamboge-config
-          - task: prune-jonquil-resources
-            file: pipelines/tasks/prune-resources/task.yml
-            input_mapping:
-              config: jonquil-config
-            params:
-              KIND: ((.:kind))
-              CLUSTER: jonquil
-          - task: prune-gamboge-resources
-            file: pipelines/tasks/prune-resources/task.yml
-            input_mapping:
-              config: gamboge-config
-            params:
-              KIND: ((.:kind))
-              CLUSTER: gamboge
+        - get: jonquil-config
+        - get: gamboge-config
       - in_parallel:
-          - do:
-            - get: jonquil-pvc-list
-              params:
-                command_args: --no-headers
-                output: custom-columns=NAME:.metadata.name
-                output_file: pvc.txt
-            - put: jonquil-pvc-manifest
-              params:
-                file: jonquil-pvc-list/pvc.txt
+        - task: prune-jonquil-resources
+          file: pipelines/tasks/prune-resources/task.yml
+          input_mapping:
+            config: jonquil-config
+          params:
+            KIND: helmrelease
+            CLUSTER: jonquil
+        - task: prune-gamboge-resources
+          file: pipelines/tasks/prune-resources/task.yml
+          input_mapping:
+            config: gamboge-config
+          params:
+            KIND: helmrelease
+            CLUSTER: gamboge
+      - in_parallel:
+        - do:
+          - get: jonquil-pvc-list
+            params:
+              command_args: --no-headers
+              output: custom-columns=NAME:.metadata.name
+              output_file: pvc.txt
+          - put: jonquil-pvc-manifest
+            params:
+              file: jonquil-pvc-list/pvc.txt
           - do:
             - get: gamboge-pvc-list
               params:
@@ -274,7 +271,7 @@ jobs:
           - get: jonquil-pvc-manifest
             trigger: true
             passed:
-              - prune-resources
+              - prune-releases
           - task: deploy-resources
             file: pipelines/tasks/deploy-resources/task.yml
             input_mapping:
@@ -287,7 +284,7 @@ jobs:
           - get: jonquil-release-manifest
             trigger: true
             passed:
-              - prune-resources
+              - prune-releases
           - task: deploy-resources
             file: pipelines/tasks/deploy-resources/task.yml
             input_mapping:
@@ -300,7 +297,7 @@ jobs:
           - get: gamboge-pvc-manifest
             trigger: true
             passed:
-              - prune-resources
+              - prune-releases
           - task: deploy-resources
             file: pipelines/tasks/deploy-resources/task.yml
             input_mapping:
@@ -313,7 +310,7 @@ jobs:
           - get: gamboge-release-manifest
             trigger: true
             passed:
-              - prune-resources
+              - prune-releases
           - task: deploy-resources
             file: pipelines/tasks/deploy-resources/task.yml
             input_mapping:

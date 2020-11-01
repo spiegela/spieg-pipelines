@@ -44,8 +44,10 @@ run:
 
           if [[ $(/bin/grep -c "$NAME" manifest/${KIND}.txt) -eq 0 ]]; then
             echo "🚀 Installing $KIND $NAMESPACE/$NAME"
-            /opt/bitnami/kubectl/bin/kubectl -n "$NAMESPACE" apply -f "$PATH" --wait=true
+          else
+            echo "🛠 Updating $KIND $NAMESPACE/$NAME"
           fi
+          /opt/bitnami/kubectl/bin/kubectl -n "$NAMESPACE" apply -f "$PATH" --wait=true
 
         fi
 
