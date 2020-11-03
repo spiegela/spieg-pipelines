@@ -227,11 +227,11 @@ jobs:
           <<: *vsphere_env
           GITHUB_TOKEN: ((git_token))
           CLUSTER_NAME: gamboge
-          VSPHERE_TEMPLATE: centos-7-kube-v1.16.9
+          VSPHERE_TEMPLATE: centos-7-kube-v1.19.1
           CONTROL_PLANE_ENDPOINT_IP: 192.168.77.60
           CONTROL_PLANE_MACHINE_COUNT: 3
           WORKER_MACHINE_COUNT: 1
-          KUBERNETES_VERSION: 1.16.9
+          KUBERNETES_VERSION: 1.19.1
           NAMESPACE: default
           TEMPLATE_MEMORY: 32768
           TEMPLATE_DISK: 64
