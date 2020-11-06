@@ -234,6 +234,9 @@ resources:
       kubeconfig: ((kubeconfig))
       release: traefik
       namespace: traefik-system
+      repos:
+        - name: traefik
+          url: https://containous.github.io/traefik-helm-chart
 
   - name: cert-manager-release
     type: helm-release
@@ -597,7 +600,7 @@ jobs:
             get_params:
               skip_download: true
         params:
-          chart: stable/traefik
+          chart: traefik/traefik
           values: traefik-values/traefik-values.yaml
           check_is_ready: true
           create_namespace: true
